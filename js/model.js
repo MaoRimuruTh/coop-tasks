@@ -183,15 +183,51 @@ export function worstState(task, now = new Date()) {
   return best;
 }
 
-export const weeksLabel = (weeks) => (weeks.length ? `สัปดาห์ ${Math.min(...weeks)}–${Math.max(...weeks)}` : '');
+export const weeksLabel = (weeks) => {
+  if (!weeks.length) return '';
+  const lo = Math.min(...weeks); const hi = Math.max(...weeks);
+  return lo === hi ? `สัปดาห์ ${lo}` : `สัปดาห์ ${lo}–${hi}`;
+};
+export const wLabel = (weeks) => {
+  if (!weeks.length) return '';
+  const lo = Math.min(...weeks); const hi = Math.max(...weeks);
+  return lo === hi ? `W${lo}` : `W${lo}–W${hi}`;
+};
 export const shortTitle = (t, n = 34) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
 
 export const woNumber = (t) => `WO-${String(t.no).padStart(3, '0')}`;
 
-/** Plan rows for one intern's university form (max 14 on the paper form). */
+/** Rows of the university form: each big item (numbered) followed by its sub-items (no number). */
 export function formRows(plans, uid) {
-  return plans
+  const mains = plans
     .filter((p) => !p.assignees || p.assignees.length === 0 || p.assignees.includes(uid))
     .filter((p) => p.weeks && p.weeks.length)
-    .sort((a, b) => (Math.min(...a.weeks) - Math.min(...b.weeks)) || ((a.order ?? 99) - (b.order ?? 99)));
+    .sort(planSort);
+  const rows = [];
+  mains.forEach((p, i) => {
+    rows.push({ key: p.id, no: i + 1, title: p.title, weeks: p.weeks, main: true, plan: p });
+    (p.steps || []).forEach((st) => rows.push({ key: `${p.id}:${st.id}`, no: null, title: st.title, weeks: st.weeks || [], main: false, plan: p, step: st }));
+  });
+  return rows;
 }
+
+// ---------- plan: big items (หัวข้องาน) with optional sub-items (หัวข้อย่อย) ----------
+export const planSort = (a, b) => (Math.min(...a.weeks) - Math.min(...b.weeks)) || ((a.order ?? 99) - (b.order ?? 99));
+export const cleanWeeks = (w) => [...new Set(w)].filter((n) => n >= 1 && n <= 16).sort((a, b) => a - b);
+/** Every week from the first to the last one given: a big item covers the whole stretch of its sub-items. */
+export const spanOf = (weeks) => {
+  if (!weeks.length) return [];
+  const lo = Math.min(...weeks); const hi = Math.max(...weeks);
+  return Array.from({ length: hi - lo + 1 }, (_, i) => lo + i);
+};
+export const stepsSpan = (steps) => spanOf((steps || []).flatMap((x) => x.weeks || []));
+/** A block of `len` weeks starting at `start` (cut at week 16). */
+export const block = (start, len) => Array.from({ length: len }, (_, i) => start + i).filter((n) => n >= 1 && n <= 16);
+export const monthWeeks = (m) => [1, 2, 3, 4].map((i) => 4 * (m - 1) + i);
+export const stepOf = (plan, stepId) => (plan && stepId ? (plan.steps || []).find((x) => x.id === stepId) || null : null);
+/** "โปรเจกต์ › ค้นหาข้อมูล" */
+export const planLabel = (plan, stepId) => {
+  if (!plan) return '';
+  const st = stepOf(plan, stepId);
+  return st ? `${plan.title} › ${st.title}` : plan.title;
+};

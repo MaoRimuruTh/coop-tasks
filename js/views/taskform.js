@@ -1,7 +1,7 @@
 // Create / edit a work order. Built for one thumb on a phone: chips over dropdowns.
 import { html, useState } from '../vendor/preact-htm.js';
 import { useApp } from '../ctx.js';
-import { PRIORITIES, addDays, dateKey, toLocalDate, weekOf, displayName, fmtDay, weeksLabel, isInternAdmin } from '../model.js';
+import { PRIORITIES, addDays, dateKey, toLocalDate, weekOf, displayName, fmtDay, wLabel, isInternAdmin, planSort } from '../model.js';
 import { Sheet, Field, Icon, ConfirmButton } from '../ui.js';
 
 // due times default to the end of the interns' working day (จัดการระบบ → เวลาฝึกงาน)
@@ -32,13 +32,17 @@ export function TaskForm({ task, onClose }) {
   const [order, setOrder] = useState(task && task.order != null ? String(task.order) : '');
   const [assigner, setAssigner] = useState(task ? task.assignerName : displayName(me));
   const [needsReview, setNeedsReview] = useState(task ? task.needsReview !== false : true);
-  const plans = Object.values(db.plans).sort((a, b) => Math.min(...a.weeks) - Math.min(...b.weeks));
+  const plans = Object.values(db.plans).filter((p) => p.weeks && p.weeks.length).sort(planSort);
+  // value is "planId" or "planId|stepId": the week of the due date picks the big item and, inside it, the sub-item
   const suggestPlan = (uids, d) => {
     const w = weekOf(cal, toLocalDate(d) || now);
     const fit = plans.filter((p) => p.weeks.includes(w) && (!p.assignees.length || uids.some((u) => p.assignees.includes(u))));
-    return (fit[0] || plans[0] || {}).id || '';
+    const p = fit[0] || plans[0];
+    if (!p) return '';
+    const st = (p.steps || []).find((x) => (x.weeks || []).includes(w));
+    return st ? `${p.id}|${st.id}` : p.id;
   };
-  const [planId, setPlanId] = useState(task ? task.planId : suggestPlan([], `${date}T${time}`));
+  const [planId, setPlanId] = useState(task ? (task.stepId ? `${task.planId}|${task.stepId}` : task.planId) : suggestPlan([], `${date}T${time}`));
   const [touchedPlan, setTouchedPlan] = useState(!!task);
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
@@ -76,7 +80,7 @@ export function TaskForm({ task, onClose }) {
       title: title.trim(), details: details.trim(), assignees,
       mode: assignees.length > 1 ? mode : 'individual',
       due: `${date}T${time || end}`, priority, order: order ? Number(order) : null,
-      planId, assignerName: assigner.trim(), needsReview,
+      planId: planId.split('|')[0], stepId: planId.split('|')[1] || null, assignerName: assigner.trim(), needsReview,
     };
     setBusy(true);
     try {
@@ -144,11 +148,12 @@ export function TaskForm({ task, onClose }) {
         </div>
       <//>
 
-      <${Field} id="tf-plan" label="อยู่ใต้หัวข้องาน (แผน)" error=${errors.plan} hint="เลือกให้อัตโนมัติจากสัปดาห์ของวันกำหนดส่ง เปลี่ยนได้">
+      <${Field} id="tf-plan" label="อยู่ใต้หัวข้องาน (แผน)" error=${errors.plan} hint="เลือกให้อัตโนมัติจากสัปดาห์ของวันกำหนดส่ง ทั้งหัวใหญ่และหัวข้อย่อย เปลี่ยนได้">
         <label class="select-wrap select-wrap--grow">
           <select id="tf-plan" value=${planId} onChange=${(e) => { setPlanId(e.target.value); setTouchedPlan(true); }}>
             ${plans.length === 0 ? html`<option value="">ยังไม่มีหัวข้องานในแผน</option>` : ''}
-            ${plans.map((p) => html`<option value=${p.id}>${p.title} (${weeksLabel(p.weeks)})</option>`)}
+            ${plans.map((p, i) => html`<option value=${p.id}>${i + 1}. ${p.title} (${wLabel(p.weeks)})</option>
+              ${(p.steps || []).map((x) => html`<option value=${`${p.id}|${x.id}`}>${'\u00a0\u00a0\u00a0'}› ${x.title} (${wLabel(x.weeks)})</option>`)}`)}
           </select>
         </label>
       <//>

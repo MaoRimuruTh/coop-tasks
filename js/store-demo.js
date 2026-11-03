@@ -2,7 +2,7 @@
 // browser (memory + localStorage). Used for the preview before Firebase is set up.
 import { addDays, stamp, stampS, dateKey, displayName, woNumber, ROLE_TH, shortTitle, canAssign, canReview, isInternAdmin, normCode, fmtTime } from './model.js';
 
-const KEY = 'coop-demo-v2';
+const KEY = 'coop-demo-v3';
 
 function svgPhoto(label, hue) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480">
@@ -30,10 +30,13 @@ function seed() {
   };
   const plans = {
     p1: { id: 'p1', title: 'สังเกตการณ์การทำงานและกฎความปลอดภัย', weeks: [1, 2], assignees: [], kind: 'normal', note: '', order: 1 },
-    p2: { id: 'p2', title: 'อ่านแบบและตรวจสอบชิ้นงาน (QC)', weeks: [3, 4, 5], assignees: [], kind: 'normal', note: '', order: 2 },
+    p2: { id: 'p2', title: 'อ่านแบบและตรวจสอบชิ้นงาน (QC)', weeks: [3, 4, 5], assignees: [], kind: 'normal', note: '', order: 2, autoWeeks: true,
+      steps: [{ id: 's21', title: 'อ่านแบบและสัญลักษณ์', weeks: [3] }, { id: 's22', title: 'วัดชิ้นงานจริงตามแบบ', weeks: [4, 5] }] },
     p3: { id: 'p3', title: 'ฝึกปฏิบัติงานเครื่อง CNC และเครื่องกลึง', weeks: [5, 6, 7, 8], assignees: [], kind: 'normal', note: '', order: 3 },
     p4: { id: 'p4', title: 'งานซ่อมบำรุงระบบนิวเมติกส์', weeks: [6, 7, 8], assignees: ['u-ton'], kind: 'normal', note: '', order: 4 },
-    p5: { id: 'p5', title: 'โปรเจค: จิ๊กจับชิ้นงานสำหรับงานเจาะ', weeks: [9, 10, 11, 12, 13, 14, 15, 16], assignees: ['u-nat', 'u-ton'], kind: 'project', note: 'งานกลุ่ม', order: 5 },
+    p5: { id: 'p5', title: 'โปรเจค: จิ๊กจับชิ้นงานสำหรับงานเจาะ', weeks: [9, 10, 11, 12, 13, 14, 15, 16], assignees: ['u-nat', 'u-ton'], kind: 'project', note: 'งานกลุ่ม', order: 5, autoWeeks: true,
+      steps: [{ id: 's51', title: 'ค้นหาข้อมูล', weeks: [9, 10] }, { id: 's52', title: 'ออกแบบ', weeks: [11, 12] }, { id: 's53', title: 'สร้างและทดสอบ', weeks: [13, 14] },
+        { id: 's54', title: 'หาจุดผิดพลาดและแก้ไข', weeks: [15] }, { id: 's55', title: 'สรุปผลและส่งมอบ', weeks: [16] }] },
     p6: { id: 'p6', title: 'โปรเจค: ระบบนับชิ้นงานด้วยเซนเซอร์', weeks: [9, 10, 11, 12, 13, 14, 15, 16], assignees: ['u-fah'], kind: 'project', note: 'งานเดี่ยว', order: 6 },
     p7: { id: 'p7', title: 'สรุปรายงานสหกิจและนำเสนอ', weeks: [15, 16], assignees: [], kind: 'normal', note: '', order: 7 },
   };

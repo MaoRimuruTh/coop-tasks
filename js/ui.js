@@ -24,6 +24,8 @@ const PATHS = {
   copy: 'M8 8h12v12H8zM16 8V4H4v12h4',
   logout: 'M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10',
   chevron: 'M9 6l6 6-6 6',
+  up: 'M6 15l6-6 6 6',
+  down: 'M6 9l6 6 6-6',
   refresh: 'M20 11a8 8 0 10-2.3 5.7M20 4v7h-7',
   send: 'M4 12l16-8-6 16-2.5-6.5z',
   image: 'M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15.5 9.5h.01',

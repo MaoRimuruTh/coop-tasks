@@ -1,7 +1,7 @@
 // Work order detail: the one action that matters for the viewer sits in the sticky footer.
 import { html, useState, useEffect, useRef } from '../vendor/preact-htm.js';
 import { useApp } from '../ctx.js';
-import { stateOf, isLate, woNumber, displayName, toLocalDate, fmtDate, fmtTime, fmtDay, canEditTask, canReview as canReviewAny, weeksLabel } from '../model.js';
+import { stateOf, isLate, woNumber, displayName, toLocalDate, fmtDate, fmtTime, fmtDay, canEditTask, canReview as canReviewAny, weeksLabel, planLabel, stepOf } from '../model.js';
 import { Sheet, Icon, StateTag, DueChip, PrioLabel, Lamp, Field } from '../ui.js';
 import { compressImage } from '../image.js';
 import { planTitle } from './rows.js';
@@ -165,7 +165,7 @@ export function TaskDetail({ task, onClose }) {
         <div><dt>กำหนดส่ง</dt><dd>${due ? `${fmtDay(due)} ${fmtTime(due)}` : '—'}
           ${mine && mine !== 'approved' && mine !== 'submitted' ? html` <${DueChip} due=${task.due} now=${now} />` : ''}</dd></div>
         <div><dt>มอบหมาย</dt><dd>${task.assignerName}${created ? ` · ${fmtDate(created)}` : ''}</dd></div>
-        <div class="span-2"><dt>หัวข้องาน</dt><dd>${plan ? html`${plan.title} <span class="soft">${weeksLabel(plan.weeks)}</span>` : planTitle(db, task.planId)}</dd></div>
+        <div class="span-2"><dt>หัวข้องาน</dt><dd>${plan ? html`${planLabel(plan, task.stepId)} <span class="soft">${weeksLabel((stepOf(plan, task.stepId) || plan).weeks)}</span>` : planTitle(db, task.planId)}</dd></div>
       </dl>
       ${task.details ? html`<p class="ticket-details">${task.details}</p>` : ''}
     </article>

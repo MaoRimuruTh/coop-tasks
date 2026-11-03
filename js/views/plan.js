@@ -1,27 +1,115 @@
-// "แผน 16 สัปดาห์" — the production-schedule style board of big tasks (หัวข้องาน).
+// "แผน 16 สัปดาห์" — production-schedule style board of big tasks (หัวข้องาน) and their sub-items
+// (หัวข้อย่อย), plus one page per month with a tick table and the daily log.
 import { html, useState } from '../vendor/preact-htm.js';
 import { useApp } from '../ctx.js';
-import { weekOf, fmtRange, fmtDate, canAssign, displayName, tally, weeksLabel } from '../model.js';
-import { Sheet, Field, Icon, ConfirmButton, Empty } from '../ui.js';
+import { weekOf, fmtRange, fmtDate, canAssign, displayName, tally, weeksLabel, wLabel, planSort, cleanWeeks, stepsSpan, block } from '../model.js';
+import { Sheet, Field, Icon, ConfirmButton, Empty, Seg } from '../ui.js';
+import { MonthView } from './month.js';
+
+const newId = () => `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+
+/** 16 weeks as 4 months of 4 buttons. */
+function WeekPicker({ weeks, onToggle, disabled }) {
+  const { cal } = useApp();
+  return html`<div class=${`week-picker${disabled ? ' is-auto' : ''}`}>${[1, 2, 3, 4].map((m) => html`<div class=${`wp-month${m >= 3 ? ' is-project' : ''}`}>
+    <span class="wp-label">เดือนที่ ${m}<small>${fmtRange(cal.months[m - 1].from, cal.months[m - 1].to)}</small></span>
+    <div class="wp-weeks">${[0, 1, 2, 3].map((i) => {
+      const n = 4 * (m - 1) + i + 1;
+      const w = cal.weeks[n - 1];
+      return html`<button type="button" class=${`wp-week${weeks.includes(n) ? ' is-on' : ''}`} aria-pressed=${weeks.includes(n)} disabled=${disabled}
+        onClick=${() => onToggle(n)}><b>W${n}</b><small>${fmtDate(w.from)}</small></button>`;
+    })}</div></div>`)}</div>`;
+}
+
+/** Thin read-only 16-week bar. */
+function MiniStrip({ weeks, now }) {
+  return html`<div class="strip strip--mini" aria-hidden="true">${[1, 2, 3, 4].map((m) => html`<span class="strip-m">${[0, 1, 2, 3].map((i) => {
+    const n = 4 * (m - 1) + i + 1;
+    return html`<i class=${`${weeks.includes(n) ? 'on' : ''}${n === now ? ' now' : ''}`}></i>`;
+  })}</span>`)}</div>`;
+}
+
+/** One sub-item: a contiguous block of weeks moved with ◀ ▶ and resized with − +. */
+function StepRow({ step, i, count, onChange, onMove, onRemove }) {
+  const start = step.weeks.length ? step.weeks[0] : 1;
+  const len = Math.max(1, step.weeks.length);
+  const setBlock = (s, l) => onChange({ ...step, weeks: block(Math.max(1, Math.min(16, s)), Math.max(1, Math.min(16, l))) });
+  return html`<li class="step-row">
+    <div class="step-top">
+      <span class="step-no" aria-hidden="true">${i + 1}</span>
+      <input type="text" class="step-title" aria-label=${`ชื่อหัวข้อย่อยที่ ${i + 1}`} value=${step.title} maxlength="60"
+        onInput=${(e) => onChange({ ...step, title: e.target.value })} />
+      <button type="button" class="icon-btn icon-btn--sm" disabled=${i === 0} onClick=${() => onMove(-1)} aria-label="ย้ายขึ้น"><${Icon} name="up" size=${16} /></button>
+      <button type="button" class="icon-btn icon-btn--sm" disabled=${i === count - 1} onClick=${() => onMove(1)} aria-label="ย้ายลง"><${Icon} name="down" size=${16} /></button>
+      <button type="button" class="icon-btn icon-btn--sm" onClick=${onRemove} aria-label=${`ลบหัวข้อย่อย ${step.title}`}><${Icon} name="close" size=${16} /></button>
+    </div>
+    <div class="step-ctl">
+      <span class="step-when"><b>${wLabel(step.weeks)}</b> · ${len} สัปดาห์</span>
+      <span class="step-btns">
+        <span class="mini-seg" role="group" aria-label="เลื่อนช่วงสัปดาห์">
+          <button type="button" disabled=${start <= 1} onClick=${() => setBlock(start - 1, len)} aria-label="เลื่อนเร็วขึ้น 1 สัปดาห์">◀</button>
+          <button type="button" disabled=${start + len - 1 >= 16} onClick=${() => setBlock(start + 1, len)} aria-label="เลื่อนช้าลง 1 สัปดาห์">▶</button>
+        </span>
+        <span class="mini-seg" role="group" aria-label="จำนวนสัปดาห์">
+          <button type="button" disabled=${len <= 1} onClick=${() => setBlock(start, len - 1)} aria-label="ลดลง 1 สัปดาห์">−</button>
+          <button type="button" disabled=${start + len - 1 >= 16} onClick=${() => setBlock(start, len + 1)} aria-label="เพิ่ม 1 สัปดาห์">+</button>
+        </span>
+      </span>
+    </div>
+    <${MiniStrip} weeks=${step.weeks} />
+  </li>`;
+}
 
 function PlanEditor({ plan, onClose }) {
-  const { store, students, cal, toast } = useApp();
+  const { store, students, cal, toast, now } = useApp();
+  const nowWeek = weekOf(cal, now) || 1;
   const [title, setTitle] = useState(plan ? plan.title : '');
-  const [weeks, setWeeks] = useState(plan ? plan.weeks : []);
+  const [picked, setPicked] = useState(plan ? plan.weeks : []);
+  const [steps, setSteps] = useState(plan && plan.steps ? plan.steps : []);
+  const [auto, setAuto] = useState(plan ? plan.autoWeeks !== false && !!(plan.steps && plan.steps.length) : true);
   const [assignees, setAssignees] = useState(plan ? plan.assignees : []);
   const [kind, setKind] = useState(plan ? plan.kind : 'normal');
   const [note, setNote] = useState(plan ? plan.note : '');
+  const [stepTitle, setStepTitle] = useState('');
   const [err, setErr] = useState({});
-  const toggleWeek = (n) => setWeeks((w) => (w.includes(n) ? w.filter((x) => x !== n) : [...w, n].sort((a, b) => a - b)));
+  const following = steps.length > 0 && auto;
+  const weeks = following ? stepsSpan(steps) : picked;
+  const toggleWeek = (n) => setPicked((w) => cleanWeeks(w.includes(n) ? w.filter((x) => x !== n) : [...w, n]));
   const toggleUser = (uid) => setAssignees((a) => (a.includes(uid) ? a.filter((x) => x !== uid) : [...a, uid]));
+
+  // QoL: type a name, tap how many weeks; it goes right after the previous sub-item
+  const addStep = (len) => {
+    const t = stepTitle.trim();
+    if (!t) { setErr({ step: 'พิมพ์ชื่อหัวข้อย่อยก่อน แล้วค่อยกดจำนวนสัปดาห์' }); return; }
+    const last = steps.length ? Math.max(...steps[steps.length - 1].weeks) : null;
+    const start = last ? Math.min(16, last + 1) : (picked.length ? picked[0] : nowWeek);
+    if (!steps.length) setAuto(picked.length === 0); // keep big-item weeks the user already chose
+    setSteps([...steps, { id: newId(), title: t, weeks: block(start, len) }]);
+    setStepTitle('');
+    setErr({});
+    setTimeout(() => { const el = document.getElementById('pe-step'); if (el) el.focus(); }, 0);
+  };
+  const changeStep = (i, st) => setSteps(steps.map((x, k) => (k === i ? st : x)));
+  const moveStep = (i, d) => {
+    const j = i + d;
+    if (j < 0 || j >= steps.length) return;
+    const next = [...steps];
+    [next[i], next[j]] = [next[j], next[i]];
+    setSteps(next);
+  };
+  const removeStep = (i) => setSteps(steps.filter((_, k) => k !== i));
+
   const save = async () => {
     const e = {};
     if (!title.trim()) e.title = 'ใส่ชื่องาน';
-    if (!weeks.length) e.weeks = 'เลือกอย่างน้อย 1 สัปดาห์';
+    if (!weeks.length) e.weeks = 'เลือกอย่างน้อย 1 สัปดาห์ หรือเพิ่มหัวข้อย่อย';
+    if (steps.some((x) => !x.title.trim())) e.step = 'หัวข้อย่อยต้องมีชื่อทุกข้อ';
     setErr(e);
     if (Object.keys(e).length) return;
     try {
-      await store.savePlan({ ...(plan || {}), title: title.trim(), weeks, assignees, kind, note: note.trim(), order: plan ? plan.order : Date.now() % 100000 });
+      await store.savePlan({ ...(plan || {}), title: title.trim(), weeks, autoWeeks: following ? true : steps.length ? false : true,
+        steps: steps.map((x) => ({ id: x.id, title: x.title.trim(), weeks: cleanWeeks(x.weeks) })),
+        assignees, kind, note: note.trim(), order: plan ? plan.order : Date.now() % 100000 });
       toast('บันทึกแผนแล้ว', 'ok');
       onClose();
     } catch (ex) { setErr({ form: ex.message }); }
@@ -35,19 +123,28 @@ function PlanEditor({ plan, onClose }) {
       <button type="button" class="btn btn--ghost" onClick=${onClose}>ยกเลิก</button>
       <button type="button" class="btn btn--primary" onClick=${save}>บันทึก</button>`}>
     <div class="form">
-      <${Field} id="pe-title" label="หัวข้องาน (ชื่อที่จะลงในฟอร์มมหาลัย)" error=${err.title}>
-        <input id="pe-title" type="text" value=${title} onInput=${(e) => setTitle(e.target.value)} placeholder="เช่น อ่านแบบและตรวจสอบชิ้นงาน" maxlength="90" />
+      <${Field} id="pe-title" label="หัวข้องาน (หัวใหญ่ที่มีเลขข้อในฟอร์มมหาลัย)" error=${err.title}>
+        <input id="pe-title" type="text" value=${title} onInput=${(e) => setTitle(e.target.value)} placeholder="เช่น โปรเจกต์ หรือ อ่านแบบและตรวจสอบชิ้นงาน" maxlength="90" />
       <//>
-      <${Field} label="สัปดาห์ที่ทำ" error=${err.weeks} hint="แตะเลือกสัปดาห์ได้หลายช่อง">
-        <div class="week-picker">${[1, 2, 3, 4].map((m) => html`<div class=${`wp-month${m >= 3 ? ' is-project' : ''}`}>
-          <span class="wp-label">เดือนที่ ${m}<small>${fmtRange(cal.months[m - 1].from, cal.months[m - 1].to)}</small></span>
-          <div class="wp-weeks">${[0, 1, 2, 3].map((i) => {
-            const n = 4 * (m - 1) + i + 1;
-            const w = cal.weeks[n - 1];
-            return html`<button type="button" class=${`wp-week${weeks.includes(n) ? ' is-on' : ''}`} aria-pressed=${weeks.includes(n)}
-              onClick=${() => toggleWeek(n)}><b>W${n}</b><small>${fmtDate(w.from)}</small></button>`;
-          })}</div></div>`)}</div>
+
+      <${Field} label="หัวข้อย่อย (ไม่บังคับ)" error=${err.step} hint="พิมพ์ชื่อ แล้วแตะว่าใช้กี่สัปดาห์ ระบบวางต่อจากข้อก่อนหน้าให้ ปรับด้วย ◀ ▶ และ − + ได้">
+        ${steps.length ? html`<ol class="step-list">${steps.map((st, i) => html`<${StepRow} key=${st.id} step=${st} i=${i} count=${steps.length}
+          onChange=${(x) => changeStep(i, x)} onMove=${(d) => moveStep(i, d)} onRemove=${() => removeStep(i)} />`)}</ol>` : ''}
+        <div class="step-add">
+          <input id="pe-step" type="text" value=${stepTitle} maxlength="60" placeholder=${steps.length ? 'หัวข้อย่อยถัดไป' : 'เช่น ค้นหาข้อมูล'}
+            onInput=${(e) => setStepTitle(e.target.value)} onKeyDown=${(e) => { if (e.key === 'Enter') { e.preventDefault(); addStep(1); } }} />
+          <div class="chips chips--quick" role="group" aria-label="เพิ่มเป็นกี่สัปดาห์">
+            ${[1, 2, 3, 4].map((n) => html`<button type="button" class="chip chip--sm" onClick=${() => addStep(n)}><${Icon} name="plus" size=${14} />${n} สัปดาห์</button>`)}
+          </div>
+        </div>
       <//>
+
+      <${Field} label="สัปดาห์ของหัวใหญ่" error=${err.weeks} hint=${following ? `ติกตามหัวข้อย่อยให้เอง ตั้งแต่ข้อแรกถึงข้อสุดท้าย (${weeksLabel(weeks) || '—'})` : 'แตะเลือกสัปดาห์ได้หลายช่อง'}>
+        ${steps.length ? html`<label class="switch switch--tight"><input id="pe-auto" type="checkbox" checked=${auto} onChange=${(e) => { setAuto(e.target.checked); if (!e.target.checked && !picked.length) setPicked(stepsSpan(steps)); }} />
+          <span class="switch-ui" aria-hidden="true"></span><span><b>ติกหัวใหญ่ตามหัวข้อย่อย</b><small>${auto ? 'ปิดถ้าจะเลือกสัปดาห์ของหัวใหญ่เอง' : 'เลือกสัปดาห์ของหัวใหญ่เองด้านล่าง'}</small></span></label>` : ''}
+        <${WeekPicker} weeks=${weeks} onToggle=${toggleWeek} disabled=${following} />
+      <//>
+
       <${Field} label="ใครทำ">
         <div class="chips">
           <button type="button" class=${`chip${assignees.length === 0 ? ' is-on' : ''}`} aria-pressed=${assignees.length === 0} onClick=${() => setAssignees([])}>นักศึกษาทุกคน</button>
@@ -72,12 +169,9 @@ function PlanEditor({ plan, onClose }) {
   <//>`;
 }
 
-export function PlanView() {
-  const { db, me, now, cal, go } = useApp();
-  const [editing, setEditing] = useState(null); // null | {} | plan
-  const staff = canAssign(me, now);
+function Overview({ plans, staff, onEdit }) {
+  const { db, me, now, cal } = useApp();
   const nowWeek = weekOf(cal, now);
-  const plans = Object.values(db.plans).sort((a, b) => (Math.min(...a.weeks) - Math.min(...b.weeks)) || ((a.order ?? 0) - (b.order ?? 0)));
   const tasks = Object.values(db.tasks);
   const statsFor = (p) => {
     const linked = tasks.filter((t) => t.planId === p.id);
@@ -86,31 +180,28 @@ export function PlanView() {
   };
   const who = (p) => (p.assignees.length ? p.assignees.map((u) => displayName(db.users[u])).join(', ') : 'ทุกคน');
   const mine = (p) => staff || !p.assignees.length || p.assignees.includes(me.uid);
+  const titleOf = (p) => (staff ? html`<button type="button" class="g-title" onClick=${() => onEdit(p)}>${p.title}</button>` : html`<span class="g-title">${p.title}</span>`);
+  const bars = (weeks, step) => cal.weeks.map((w) => {
+    const on = weeks.includes(w.n);
+    const prev = weeks.includes(w.n - 1);
+    const next = weeks.includes(w.n + 1);
+    return html`<td class=${`g-cell${w.n === nowWeek ? ' is-now' : ''}${w.n % 4 === 1 ? ' m-start' : ''}`}>
+      ${on ? html`<span class=${`g-bar${step ? ' g-bar--step' : ''}${prev ? '' : ' g-bar--start'}${next ? '' : ' g-bar--end'}`}></span>` : ''}</td>`;
+  });
 
-  return html`<section class="page page--wide">
-    <header class="page-head">
-      <div><h1>แผน 16 สัปดาห์</h1><p class="page-sub">${fmtRange(cal.start, cal.end)} · ฝึกงาน${db.settings.workDays || 'จันทร์–เสาร์'} ${db.settings.workStart || '08:00'}–${db.settings.workEnd || '17:00'} น.</p></div>
-      <div class="head-actions">
-        <button type="button" class="btn btn--ghost" onClick=${() => go('form')}><${Icon} name="form" size=${18} />ฟอร์มส่งมหาลัย</button>
-        ${staff ? html`<button type="button" class="btn btn--primary" onClick=${() => setEditing({})}><${Icon} name="plus" size=${18} />เพิ่มหัวข้องาน</button>` : ''}
-      </div>
-    </header>
-    <p class="note-band">เดือนที่ 3–4 เป็นงานโปรเจคของนักศึกษา สั่งเป็นงานกลุ่มร่วมกับนักศึกษาฝึกงานคนอื่น หรือสั่งแยกรายคนก็ได้</p>
-
-    ${plans.length === 0 ? html`<${Empty} title="ยังไม่มีหัวข้องานในแผน" text=${staff ? 'กด “เพิ่มหัวข้องาน” แล้วแตะเลือกสัปดาห์ที่ทำ' : 'พี่ผู้ดูแลจะเป็นคนลงแผน'} />` : html`
+  return html`
     <ul class="plan-strips" aria-label="แผนแบบย่อสำหรับมือถือ">
       <li class="ps-head"><div class="strip">${cal.months.map((mo) => html`<span class="strip-label"><b>เดือนที่ ${mo.m}</b><span>${fmtDate(mo.from)} –</span><span>${fmtDate(mo.to)}</span></span>`)}</div></li>
-      ${plans.map((p) => {
+      ${plans.map((p, idx) => {
         const st = statsFor(p);
         return html`<li class=${`ps-item ps-item--${p.kind}${mine(p) ? '' : ' is-other'}`} key=${`s-${p.id}`}>
           <div class="g-label-text">
-            ${staff ? html`<button type="button" class="g-title" onClick=${() => setEditing(p)}>${p.title}</button>` : html`<span class="g-title">${p.title}</span>`}
-            <small>${weeksLabel(p.weeks)} · ${who(p)}${p.note ? ` · ${p.note}` : ''}${st.n ? ` · งานย่อย ${st.done}/${st.n} เสร็จ` : ''}</small>
+            <span class="ps-no">${idx + 1}</span>${titleOf(p)}
+            <small>${weeksLabel(p.weeks)} · ${who(p)}${p.note ? ` · ${p.note}` : ''}${st.n ? ` · งาน ${st.done}/${st.n} เสร็จ` : ''}</small>
           </div>
-          <div class="strip" aria-hidden="true">${[1, 2, 3, 4].map((m) => html`<span class="strip-m">${[0, 1, 2, 3].map((i) => {
-            const n = 4 * (m - 1) + i + 1;
-            return html`<i class=${`${p.weeks.includes(n) ? 'on' : ''}${n === nowWeek ? ' now' : ''}`}></i>`;
-          })}</span>`)}</div>
+          <${MiniStrip} weeks=${p.weeks} now=${nowWeek} />
+          ${(p.steps || []).length ? html`<ul class="ps-steps">${p.steps.map((x) => html`<li key=${x.id}>
+            <span class="ps-step-title">${x.title}<small>${wLabel(x.weeks)}</small></span><${MiniStrip} weeks=${x.weeks} now=${nowWeek} /></li>`)}</ul>` : ''}
         </li>`;
       })}
     </ul>
@@ -125,24 +216,54 @@ export function PlanView() {
           <tr class="g-weeks">${cal.weeks.map((w) => html`<th scope="col" class=${`g-week${w.n === nowWeek ? ' is-now' : ''}${w.n % 4 === 1 ? ' m-start' : ''}`}
             title=${fmtRange(w.from, w.to)}>W${w.n}<small>${w.from.getDate()}</small></th>`)}</tr>
         </thead>
-        <tbody>${plans.map((p) => {
+        <tbody>${plans.map((p, idx) => {
           const st = statsFor(p);
           return html`<tr class=${`g-row g-row--${p.kind}${mine(p) ? '' : ' is-other'}`} key=${p.id}>
-            <th scope="row" class="g-label">
-              ${staff ? html`<button type="button" class="g-title" onClick=${() => setEditing(p)}>${p.title}</button>` : html`<span class="g-title">${p.title}</span>`}
-              <small>${who(p)}${p.note ? ` · ${p.note}` : ''}${st.n ? ` · งานย่อย ${st.done}/${st.n} เสร็จ` : ''}</small>
-            </th>
-            ${cal.weeks.map((w) => {
-              const on = p.weeks.includes(w.n);
-              const prev = p.weeks.includes(w.n - 1);
-              const next = p.weeks.includes(w.n + 1);
-              return html`<td class=${`g-cell${w.n === nowWeek ? ' is-now' : ''}${w.n % 4 === 1 ? ' m-start' : ''}`}>
-                ${on ? html`<span class=${`g-bar${prev ? '' : ' g-bar--start'}${next ? '' : ' g-bar--end'}`}></span>` : ''}</td>`;
-            })}
-          </tr>`;
+              <th scope="row" class="g-label"><span class="g-no">${idx + 1}</span>${titleOf(p)}
+                <small>${who(p)}${p.note ? ` · ${p.note}` : ''}${st.n ? ` · งาน ${st.done}/${st.n} เสร็จ` : ''}</small></th>
+              ${bars(p.weeks, false)}
+            </tr>
+            ${(p.steps || []).map((x) => html`<tr class=${`g-row g-row--step${mine(p) ? '' : ' is-other'}`} key=${`${p.id}:${x.id}`}>
+              <th scope="row" class="g-label g-label--step"><span class="g-step-title">${x.title}</span></th>
+              ${bars(x.weeks, true)}
+            </tr>`)}`;
         })}</tbody>
       </table>
-    </div>`}
+    </div>`;
+}
+
+const VIEW_KEY = 'coop-plan-view';
+const readView = () => { try { return localStorage.getItem(VIEW_KEY) || 'all'; } catch { return 'all'; } };
+
+export function PlanView() {
+  const { db, me, now, cal, go } = useApp();
+  const [editing, setEditing] = useState(null); // null | {} | plan
+  const [view, setViewState] = useState(readView);
+  const setView = (v) => { setViewState(v); try { localStorage.setItem(VIEW_KEY, v); } catch { /* private mode */ } };
+  const staff = canAssign(me, now);
+  const nowWeek = weekOf(cal, now);
+  const plans = Object.values(db.plans).filter((p) => p.weeks && p.weeks.length).sort(planSort);
+  const st = db.settings;
+
+  return html`<section class="page page--wide">
+    <header class="page-head no-print">
+      <div><h1>แผน 16 สัปดาห์</h1><p class="page-sub">${fmtRange(cal.start, cal.end)} · ฝึกงาน${st.workDays || 'จันทร์–เสาร์'} ${st.workStart || '08:00'}–${st.workEnd || '17:00'} น.</p></div>
+      <div class="head-actions">
+        <button type="button" class="btn btn--ghost" onClick=${() => go('form')}><${Icon} name="form" size=${18} />ฟอร์มส่งมหาลัย</button>
+        ${staff ? html`<button type="button" class="btn btn--primary" onClick=${() => setEditing({})}><${Icon} name="plus" size=${18} />เพิ่มหัวข้องาน</button>` : ''}
+      </div>
+    </header>
+    <div class="no-print plan-tabs">
+      <${Seg} label="มุมมองแผน" value=${view} onChange=${setView} options=${[
+        { value: 'all', label: 'ภาพรวม' },
+        ...[1, 2, 3, 4].map((m) => ({ value: `m${m}`, label: html`เดือน ${m}${nowWeek && Math.ceil(nowWeek / 4) === m ? html`<i class="seg-dot" aria-label="เดือนนี้"></i>` : ''}` })),
+      ]} />
+    </div>
+    ${view === 'all' ? html`
+      <p class="note-band no-print">เดือนที่ 3–4 เป็นงานโปรเจคของนักศึกษา สั่งเป็นงานกลุ่มร่วมกับนักศึกษาฝึกงานคนอื่น หรือสั่งแยกรายคนก็ได้</p>
+      ${plans.length === 0 ? html`<${Empty} title="ยังไม่มีหัวข้องานในแผน" text=${staff ? 'กด “เพิ่มหัวข้องาน” ใส่หัวข้อย่อยได้ แล้วระบบติกสัปดาห์ให้' : 'พี่ผู้ดูแลจะเป็นคนลงแผน'} />`
+        : html`<${Overview} plans=${plans} staff=${staff} onEdit=${setEditing} />`}`
+    : html`<${MonthView} m=${Number(view.slice(1))} onEdit=${staff ? setEditing : null} />`}
     ${editing ? html`<${PlanEditor} plan=${editing.id ? editing : null} onClose=${() => setEditing(null)} />` : ''}
   </section>`;
 }

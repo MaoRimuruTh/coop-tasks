@@ -35,7 +35,7 @@ export function UniForm() {
     <div class="no-print form-tools">
       ${staff ? html`<div class="chips" role="group" aria-label="เลือกนักศึกษา">${students.map((u) => html`<button type="button"
         class=${`chip${uid === u.uid ? ' is-on' : ''}`} aria-pressed=${uid === u.uid} onClick=${() => setUid(u.uid)}>${displayName(u)}</button>`)}</div>` : ''}
-      ${rows.length > ROWS ? html`<p class="callout callout--stop">มีหัวข้องาน ${rows.length} รายการ แต่แบบฟอร์มมี ${ROWS} แถว แสดงได้แค่ ${ROWS} รายการแรก ควรรวมหัวข้อให้กระชับ</p>` : ''}
+      ${rows.length > ROWS ? html`<p class="callout callout--stop">หัวข้องานรวมหัวข้อย่อยมี ${rows.length} แถว แต่แบบฟอร์มมี ${ROWS} แถว แสดงได้แค่ ${ROWS} แถวแรก ควรรวมหัวข้อย่อยให้กระชับ</p>` : ''}
       ${!canPrint ? html`<p class="hint-line">หน้าตัวอย่างนี้สั่งพิมพ์ไม่ได้ ในเว็บจริงจะมีปุ่ม “พิมพ์ / บันทึกเป็น PDF” ตรงนี้</p>` : ''}
       <p class="hint-line">เดือนที่ในฟอร์ม = ช่วงละ 4 สัปดาห์ ${cal.months.map((m) => `· เดือนที่ ${m.m} = ${fmtDateYear(m.from)} – ${fmtDateYear(m.to)}`).join(' ')}</p>
     </div>
@@ -57,10 +57,10 @@ export function UniForm() {
         <colgroup><col class="c-no" /><col class="c-task" />${Array.from({ length: 16 }, () => html`<col class="c-week" />`)}</colgroup>
         <thead><tr><th colspan="2">หัวข้องาน</th>${[1, 2, 3, 4].map((m) => html`<th colspan="4" class="m-start">เดือนที่ ${m}</th>`)}</tr></thead>
         <tbody>${Array.from({ length: ROWS }, (_, i) => {
-          const p = shown[i];
-          return html`<tr>
-            <td class="c-no">${p ? i + 1 : ''}</td><td class="c-task">${p ? p.title : ''}</td>
-            ${Array.from({ length: 16 }, (_, k) => html`<td class=${`c-week${k % 4 === 0 ? ' m-start' : ''}${p && p.weeks.includes(k + 1) ? ' is-on' : ''}`}></td>`)}
+          const r = shown[i];
+          return html`<tr class=${r && !r.main ? 'is-step' : ''}>
+            <td class="c-no">${r && r.no ? r.no : ''}</td><td class="c-task">${r ? r.title : ''}</td>
+            ${Array.from({ length: 16 }, (_, k) => html`<td class=${`c-week${k % 4 === 0 ? ' m-start' : ''}${r && r.weeks.includes(k + 1) ? ' is-on' : ''}`}></td>`)}
           </tr>`;
         })}</tbody>
       </table>
