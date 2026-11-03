@@ -1,0 +1,99 @@
+rules_version = '2';
+// กฎสิทธิ์ของเว็บใบสั่งงานฝึกงาน — วางทั้งไฟล์นี้ใน Firebase console → Firestore Database → Rules แล้วกด Publish
+// pending = ล็อกอินแล้วแต่แอดมินยังไม่อนุมัติ: อ่านได้แค่ข้อมูลของตัวเอง
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function profile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function role() {
+      return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) ? profile().role : 'none';
+    }
+    function approved() { return role() in ['admin', 'supervisor', 'student']; }
+    function staff() { return role() in ['admin', 'supervisor']; }
+    function admin() { return role() == 'admin'; }
+    function task(tid) { return get(/databases/$(database)/documents/tasks/$(tid)).data; }
+    function isAssignee(tid, uid) { return uid in task(tid).assignees; }
+    function onlyChanged(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+
+    match /users/{uid} {
+      allow read: if approved() || (signedIn() && request.auth.uid == uid);
+      // first sign-in: everyone starts as "pending"
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.role == 'pending'
+        && request.resource.data.keys().hasOnly(['uid', 'name', 'email', 'photo', 'role', 'isStudent', 'created']);
+      allow update: if admin()
+        // one-time bootstrap: whoever creates meta/admin in the same batch becomes admin
+        || (signedIn() && request.auth.uid == uid
+            && getAfter(/databases/$(database)/documents/meta/admin).data.uid == request.auth.uid
+            && onlyChanged(['role', 'isStudent']) && request.resource.data.role == 'admin')
+        // people may edit their own profile details, never their role
+        || (signedIn() && request.auth.uid == uid && approved()
+            && onlyChanged(['name', 'nickname', 'studentId', 'major', 'faculty', 'position']));
+      allow delete: if admin();
+    }
+
+    match /meta/admin {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+    match /meta/counter {
+      allow read: if approved();
+      allow write: if staff();
+    }
+    match /settings/{id} {
+      allow read: if approved();
+      allow write: if admin();
+    }
+    match /plans/{id} {
+      allow read: if approved();
+      allow write: if staff();
+    }
+
+    match /tasks/{tid} {
+      allow read: if approved();
+      allow write: if staff();
+
+      // one status document per intern: ack / submitted (approved only for tasks that need no review)
+      match /progress/{uid} {
+        allow read: if approved();
+        allow write: if staff();
+        allow create, update: if approved() && isAssignee(tid, request.auth.uid)
+          && (uid == request.auth.uid || (task(tid).mode == 'group' && isAssignee(tid, uid)))
+          && request.resource.data.keys().hasOnly(['s', 'at'])
+          && (request.resource.data.s in ['ack', 'submitted']
+              || (request.resource.data.s == 'approved' && task(tid).needsReview == false));
+      }
+
+      match /subs/{sid} {
+        allow read: if approved();
+        allow create: if approved() && isAssignee(tid, request.auth.uid)
+          && request.resource.data.by == request.auth.uid
+          && request.resource.data.for.hasAll([request.auth.uid])
+          && (request.resource.data.review == null
+              || (task(tid).needsReview == false && request.resource.data.review.decision == 'approved'));
+        allow update: if staff();
+        allow delete: if staff() || (resource.data.by == request.auth.uid && resource.data.review == null);
+      }
+    }
+
+    // the whole team's statuses are read with one collection-group listener
+    match /{path=**}/progress/{uid} {
+      allow read: if approved();
+    }
+
+    match /attachments/{aid} {
+      allow read: if approved();
+      allow create: if approved() && request.resource.data.by == request.auth.uid
+        && request.resource.data.data is string && request.resource.data.data.size() < 1000000;
+      allow delete: if staff() || resource.data.by == request.auth.uid;
+      allow update: if false;
+    }
+
+    match /activity/{id} {
+      allow read: if approved();
+      allow create: if approved() && request.resource.data.by == request.auth.uid;
+      allow update, delete: if false;
+    }
+  }
+}
