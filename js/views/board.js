@@ -1,11 +1,11 @@
-// "ภาพรวม" — the supervisor's andon board: who is stuck, what waits for review.
+// "ภาพรวม" — the supervisor's board: work waiting for him first, then each intern's lamps.
 import { html } from '../vendor/preact-htm.js';
 import { useApp } from '../ctx.js';
-import { stateOf, isLate, tally, toLocalDate, startOfDay, TH_DAYS, fmtDate, weekOf, displayName, fmtTime, fmtDay } from '../model.js';
-import { Avatar, Empty } from '../ui.js';
+import { stateOf, isLate, tally, toLocalDate, displayName, fmtTime, fmtDay } from '../model.js';
+import { Avatar } from '../ui.js';
 import { StaffRow, StateLegend } from './rows.js';
 
-const CELLS = [
+const LAMPS = [
   { key: 'late', label: 'เลยกำหนด', lamp: 'stop' },
   { key: 'changes', label: 'ให้แก้', lamp: 'stop' },
   { key: 'submitted', label: 'รอตรวจ', lamp: 'wait' },
@@ -14,76 +14,64 @@ const CELLS = [
   { key: 'approved', label: 'ผ่าน', lamp: 'ok' },
 ];
 
+function Queue({ title, items, empty, tone }) {
+  return html`<section class="queue">
+    <div class="section-head"><h2>${title} <span class=${`count${tone ? ` count--${tone}` : ''}`}>${items.length}</span></h2></div>
+    ${items.length ? html`<ul class="wo-list">${items.map((t) => html`<${StaffRow} task=${t} key=${t.id} />`)}</ul>`
+      : html`<p class="quiet">${empty}</p>`}
+  </section>`;
+}
+
 export function Board() {
-  const { db, now, cal, students, go, setTaskFilter } = useApp();
+  const { db, now, students, go, setTaskFilter } = useApp();
   const tasks = Object.values(db.tasks);
-  const today = startOfDay(now).getTime();
   const counts = Object.fromEntries(students.map((u) => [u.uid, { late: 0, changes: 0, submitted: 0, assigned: 0, ack: 0, approved: 0 }]));
   for (const t of tasks) {
     for (const u of t.assignees) {
       if (!counts[u]) continue;
-      const s = stateOf(t, u);
       if (isLate(t, u, now)) counts[u].late += 1;
-      else counts[u][s] += 1;
+      else counts[u][stateOf(t, u)] += 1;
     }
   }
+  const byDue = (a, b) => (a.due < b.due ? -1 : 1);
   const withTally = tasks.map((t) => ({ t, k: tally(t, now) }));
-  const review = withTally.filter((x) => x.k.submitted).map((x) => x.t).sort((a, b) => (a.due < b.due ? -1 : 1));
-  const late = withTally.filter((x) => x.k.late).map((x) => x.t).sort((a, b) => (a.due < b.due ? -1 : 1));
-  const unseen = withTally.filter((x) => x.k.assigned && !x.k.late).map((x) => x.t).sort((a, b) => (a.due < b.due ? -1 : 1));
-  const dueToday = withTally.filter((x) => {
-    const d = toLocalDate(x.t.due);
-    return d && startOfDay(d).getTime() === today && x.k.approved < x.k.total;
-  }).length;
-  const week = weekOf(cal, now);
-  const recent = (db.activity || []).slice(0, 6);
-
+  const review = withTally.filter((x) => x.k.submitted).map((x) => x.t).sort(byDue);
+  const late = withTally.filter((x) => x.k.late).map((x) => x.t).sort(byDue);
+  const unseen = withTally.filter((x) => x.k.assigned && !x.k.late).map((x) => x.t).sort(byDue);
+  const recent = (db.activity || []).slice(0, 8);
   const openStudent = (uid, status) => { setTaskFilter({ uid, status }); go('tasks'); };
 
   return html`<section class="page page--wide">
-    <header class="page-head">
-      <div>
-        <p class="eyebrow">${TH_DAYS[now.getDay()]} ${fmtDate(now)}${week ? ` · สัปดาห์ ${week} เดือนที่ ${Math.ceil(week / 4)}` : ''}</p>
-        <h1>ภาพรวมวันนี้</h1>
-      </div>
-      <p class="brief">ครบกำหนดวันนี้ <b>${dueToday}</b> งาน · รอตรวจ <b>${review.length}</b> · เลยกำหนด <b class=${late.length ? 'is-bad' : ''}>${late.length}</b> · ยังไม่รับทราบ <b>${unseen.length}</b></p>
-    </header>
+    <header class="page-head"><h1>ภาพรวม</h1></header>
+
+    <div class="board-cols">
+      <${Queue} title="รอตรวจ" items=${review} empty="ไม่มีงานรอตรวจ" tone=${review.length ? 'wait' : ''} />
+      <${Queue} title="เลยกำหนด" items=${late} empty="ไม่มีงานเลยกำหนด" tone=${late.length ? 'bad' : ''} />
+    </div>
 
     <section class="andon" aria-labelledby="andon-title">
       <div class="section-head"><h2 id="andon-title">สถานะนักศึกษา</h2><${StateLegend} /></div>
-      ${students.length ? html`<div class="andon-grid">
-        ${students.map((u) => html`<article class="andon-card" key=${u.uid}>
-          <button type="button" class="andon-who" onClick=${() => openStudent(u.uid, 'open')}>
-            <${Avatar} user=${u} size="lg" /><span><b>${displayName(u)}</b><small>${u.name}</small></span>
-          </button>
-          <div class="andon-cells">
-            ${CELLS.map((c) => {
-              const n = counts[u.uid][c.key];
-              return html`<button type="button" class=${`andon-cell andon-cell--${c.lamp}${n ? ' is-lit' : ''}`}
-                onClick=${() => openStudent(u.uid, c.key)} aria-label=${`${displayName(u)} ${c.label} ${n} งาน`}>
-                <span class="andon-n">${n}</span><span class="andon-l">${c.label}</span></button>`;
-            })}
-          </div>
-        </article>`)}
-      </div>` : html`<${Empty} title="ยังไม่มีนักศึกษาในระบบ" text="แอดมินเพิ่มนักศึกษาได้ที่เมนูจัดการระบบ" />`}
+      <ul class="andon-list">
+        ${students.map((u) => {
+          const c = counts[u.uid];
+          const lit = LAMPS.filter((l) => c[l.key] > 0);
+          return html`<li class="andon-row" key=${u.uid}>
+            <button type="button" class="andon-who" onClick=${() => openStudent(u.uid, 'open')}>
+              <${Avatar} user=${u} /><span><b>${displayName(u)}</b><small>${u.name}</small></span>
+            </button>
+            <div class="andon-lamps">
+              ${lit.length ? lit.map((l) => html`<button type="button" class=${`andon-chip andon-chip--${l.lamp}`}
+                onClick=${() => openStudent(u.uid, l.key)} aria-label=${`${displayName(u)} ${l.label} ${c[l.key]} งาน`}>
+                <span class=${`lamp lamp--${l.lamp} lamp--sm`}></span>${l.label}<b>${c[l.key]}</b></button>`)
+              : html`<span class="quiet">ยังไม่มีงาน</span>`}
+            </div>
+          </li>`;
+        })}
+      </ul>
     </section>
 
     <div class="board-cols">
-      <section class="queue">
-        <div class="section-head"><h2>รอตรวจ <span class="count">${review.length}</span></h2></div>
-        ${review.length ? html`<ul class="wo-list">${review.map((t) => html`<${StaffRow} task=${t} key=${t.id} />`)}</ul>`
-          : html`<p class="quiet">ไม่มีงานรอตรวจ</p>`}
-      </section>
-      <section class="queue">
-        <div class="section-head"><h2>เลยกำหนด <span class="count count--bad">${late.length}</span></h2></div>
-        ${late.length ? html`<ul class="wo-list">${late.map((t) => html`<${StaffRow} task=${t} key=${t.id} />`)}</ul>`
-          : html`<p class="quiet">ไม่มีงานเลยกำหนด</p>`}
-      </section>
-      <section class="queue">
-        <div class="section-head"><h2>ยังไม่รับทราบ <span class="count">${unseen.length}</span></h2></div>
-        ${unseen.length ? html`<ul class="wo-list">${unseen.map((t) => html`<${StaffRow} task=${t} key=${t.id} />`)}</ul>`
-          : html`<p class="quiet">ทุกคนรับทราบงานแล้ว</p>`}
-      </section>
+      <${Queue} title="ยังไม่รับทราบ" items=${unseen} empty="ทุกคนรับทราบงานแล้ว" />
       <section class="queue">
         <div class="section-head"><h2>ความเคลื่อนไหวล่าสุด</h2></div>
         ${recent.length ? html`<ol class="feed">${recent.map((a) => {

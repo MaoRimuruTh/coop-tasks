@@ -29,7 +29,7 @@ export function UniForm() {
 
   return html`<section class="page page--form">
     <header class="page-head no-print">
-      <div><p class="eyebrow">ดึงจากแผน 16 สัปดาห์ให้อัตโนมัติ</p><h1>ฟอร์มส่งมหาลัย</h1></div>
+      <div><h1>ฟอร์มส่งมหาลัย</h1><p class="page-sub">แบบแจ้งแผนปฏิบัติงานสหกิจศึกษา ดึงจากแผน 16 สัปดาห์ให้อัตโนมัติ</p></div>
       ${canPrint ? html`<button type="button" class="btn btn--primary" onClick=${() => window.print()}><${Icon} name="form" size=${18} />พิมพ์ / บันทึกเป็น PDF</button>` : ''}
     </header>
     <div class="no-print form-tools">

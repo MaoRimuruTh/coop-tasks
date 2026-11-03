@@ -78,7 +78,8 @@ export function AdminView() {
   };
 
   return html`<section class="page">
-    <header class="page-head"><div><p class="eyebrow">เฉพาะแอดมิน</p><h1>จัดการระบบ</h1></div></header>
+    <header class="page-head"><h1>จัดการระบบ</h1></header>
+    ${!db.settings.company ? html`<p class="callout callout--wait">ยังไม่ได้กรอกชื่อสถานประกอบการ กรอกที่ “ช่วงฝึกงาน” ด้านล่าง ชื่อนี้ใช้ลงฟอร์มส่งมหาลัย</p>` : ''}
 
     <section class="panel">
       <div class="section-head"><h2>คนที่ขอเข้าระบบ <span class="count">${pending.length}</span></h2></div>

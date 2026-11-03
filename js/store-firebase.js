@@ -1,7 +1,7 @@
 // Firebase store: same interface as store-demo.js, backed by Firestore + Google sign-in.
 // Free Spark plan only: photos are shrunk on the phone and stored as Firestore documents
 // (Cloud Storage would need the paid Blaze plan).
-import { stampS, woNumber, displayName, ROLE_TH } from './model.js';
+import { stampS, woNumber, displayName, ROLE_TH, shortTitle } from './model.js';
 
 const SDK = 'https://www.gstatic.com/firebasejs/10.14.1';
 const DEFAULT_SETTINGS = { startDate: '2026-11-02', endDate: '2027-02-19', company: '', university: 'มหาวิทยาลัยทักษิณ' };
@@ -57,7 +57,10 @@ export async function createFirebaseStore(config) {
   const must = (ok, msg) => { if (!ok) throw new Error(msg); };
   const now = () => stampS(new Date());
   const activityRef = () => doc(collection(fs, 'activity'));
-  const logIn = (batch, text, taskId = null) => batch.set(activityRef(), { at: now(), by: uid(), text, taskId });
+  const logIn = (batch, text, taskId = null) => {
+    const t = taskId && S.tasks[taskId];
+    batch.set(activityRef(), { at: now(), by: uid(), text: t ? `${text} “${shortTitle(t.title)}”` : text, taskId });
+  };
   const wrap = (fn) => async (...args) => { try { return await fn(...args); } catch (e) { throw thaiError(e); } };
 
   window.addEventListener('online', () => { S.online = true; emit(); });
@@ -127,7 +130,7 @@ export async function createFirebaseStore(config) {
         tx.set(cRef, { n: no });
         tx.set(ref, { ...input, no, createdBy: uid(), created: now() });
         input.assignees.forEach((a) => tx.set(doc(fs, 'tasks', ref.id, 'progress', a), { s: 'assigned', at: now() }));
-        tx.set(activityRef(), { at: now(), by: uid(), text: `สั่งงาน ${woNumber({ no })}`, taskId: ref.id });
+        tx.set(activityRef(), { at: now(), by: uid(), text: `สั่งงาน ${woNumber({ no })} “${shortTitle(input.title)}”`, taskId: ref.id });
       });
       return ref.id;
     }),
@@ -188,6 +191,7 @@ export async function createFirebaseStore(config) {
       const tid = subIndex[subId];
       const sref = doc(fs, 'tasks', tid, 'subs', subId);
       const sub = (await getDoc(sref)).data();
+      must(!sub.for.includes(uid()), 'ตรวจงานของตัวเองไม่ได้ ให้พี่ผู้ดูแลเป็นคนตรวจ');
       const at = now();
       const b = writeBatch(fs);
       b.update(sref, { review: { decision, note, by: uid(), at } });

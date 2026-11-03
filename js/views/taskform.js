@@ -1,8 +1,8 @@
 // Create / edit a work order. Built for one thumb on a phone: chips over dropdowns.
 import { html, useState } from '../vendor/preact-htm.js';
 import { useApp } from '../ctx.js';
-import { PRIORITIES, addDays, dateKey, pad, toLocalDate, weekOf, displayName, fmtDay } from '../model.js';
-import { Sheet, Field, Icon } from '../ui.js';
+import { PRIORITIES, addDays, dateKey, toLocalDate, weekOf, displayName, fmtDay, weeksLabel } from '../model.js';
+import { Sheet, Field, Icon, ConfirmButton } from '../ui.js';
 
 const quickDates = (now) => {
   const fri = addDays(now, (5 - now.getDay() + 7) % 7 || 0);
@@ -55,12 +55,15 @@ export function TaskForm({ task, onClose }) {
     if (!touchedPlan) setPlanId(suggestPlan(assignees, `${d}T${t}`));
   };
 
+  const remove = async () => {
+    try { await store.deleteTask(task.id); toast('ลบใบสั่งงานแล้ว'); onClose(); } catch (ex) { setErrors({ form: ex.message }); }
+  };
   const save = async (again = false) => {
     const e = {};
     if (!title.trim()) e.title = 'ใส่ชื่องาน';
     if (!assignees.length) e.assignees = 'เลือกอย่างน้อย 1 คน';
     if (!date) e.due = 'เลือกวันกำหนดส่ง';
-    if (plans.length && !planId) e.plan = 'เลือกงานใหญ่ในแผน';
+    if (plans.length && !planId) e.plan = 'เลือกหัวข้องาน';
     if (order && !/^\d{1,3}$/.test(order)) e.order = 'ใส่เป็นตัวเลข 1–999';
     if (!assigner.trim()) e.assigner = 'ใส่ชื่อผู้มอบหมาย (ชื่อเล่นได้)';
     setErrors(e);
@@ -90,7 +93,8 @@ export function TaskForm({ task, onClose }) {
   };
 
   return html`<${Sheet} title=${editing ? 'แก้ไขใบสั่งงาน' : 'สั่งงานใหม่'} onClose=${onClose}
-    footer=${html`<button type="button" class="btn btn--ghost" onClick=${onClose}>ยกเลิก</button>
+    footer=${html`${editing ? html`<${ConfirmButton} label="ลบ" confirmLabel="กดอีกครั้งเพื่อลบ" icon="trash" onConfirm=${remove} />`
+        : html`<button type="button" class="btn btn--ghost" onClick=${onClose}>ยกเลิก</button>`}
       <span class="foot-space"></span>
       ${editing ? '' : html`<button type="button" class="btn btn--ghost" disabled=${busy} onClick=${() => save(true)}>สั่งแล้วเพิ่มอีก</button>`}
       <button type="button" class="btn btn--primary" disabled=${busy} onClick=${() => save(false)}>${busy ? 'กำลังบันทึก…' : editing ? 'บันทึก' : 'สั่งงาน'}</button>`}>
@@ -136,11 +140,11 @@ export function TaskForm({ task, onClose }) {
         </div>
       <//>
 
-      <${Field} id="tf-plan" label="อยู่ใต้งานใหญ่ในแผน" error=${errors.plan} hint="เลือกให้อัตโนมัติจากสัปดาห์ของวันกำหนดส่ง เปลี่ยนได้">
+      <${Field} id="tf-plan" label="อยู่ใต้หัวข้องาน (แผน)" error=${errors.plan} hint="เลือกให้อัตโนมัติจากสัปดาห์ของวันกำหนดส่ง เปลี่ยนได้">
         <label class="select-wrap select-wrap--grow">
           <select id="tf-plan" value=${planId} onChange=${(e) => { setPlanId(e.target.value); setTouchedPlan(true); }}>
-            ${plans.length === 0 ? html`<option value="">ยังไม่มีงานในแผน</option>` : ''}
-            ${plans.map((p) => html`<option value=${p.id}>W${Math.min(...p.weeks)}–${Math.max(...p.weeks)} · ${p.title}</option>`)}
+            ${plans.length === 0 ? html`<option value="">ยังไม่มีหัวข้องานในแผน</option>` : ''}
+            ${plans.map((p) => html`<option value=${p.id}>${p.title} (${weeksLabel(p.weeks)})</option>`)}
           </select>
         </label>
       <//>

@@ -1,6 +1,6 @@
 // Demo store: same interface as the Firebase store, but everything lives in this
 // browser (memory + localStorage). Used for the preview before Firebase is set up.
-import { addDays, stamp, stampS, dateKey, displayName, woNumber, ROLE_TH } from './model.js';
+import { addDays, stamp, stampS, dateKey, displayName, woNumber, ROLE_TH, shortTitle } from './model.js';
 
 const KEY = 'coop-demo-v1';
 
@@ -108,7 +108,10 @@ export function createDemoStore() {
   };
   const emit = () => { db = { ...db }; save(); listeners.forEach((fn) => fn()); };
   const me = () => db.users[db.actor];
-  const log = (text, taskId) => { db.activity = [{ at: stampS(new Date()), by: db.actor, text, taskId }, ...db.activity].slice(0, 300); };
+  const log = (text, taskId) => {
+    const t = taskId && db.tasks[taskId];
+    db.activity = [{ at: stampS(new Date()), by: db.actor, text: t ? `${text} “${shortTitle(t.title)}”` : text, taskId }, ...db.activity].slice(0, 300);
+  };
   const must = (ok, msg) => { if (!ok) throw new Error(msg); };
   const staff = () => ['admin', 'supervisor'].includes(me()?.role);
 
@@ -179,6 +182,7 @@ export function createDemoStore() {
     async review(subId, decision, note = '') {
       must(staff(), 'ตรวจงานได้เฉพาะพี่ผู้ดูแลหรือแอดมิน');
       const sub = db.subs[subId];
+      must(!sub.for.includes(db.actor), 'ตรวจงานของตัวเองไม่ได้ ให้พี่ผู้ดูแลเป็นคนตรวจ');
       const t = db.tasks[sub.taskId];
       const nowS = stamp(new Date());
       db.subs = { ...db.subs, [subId]: { ...sub, review: { decision, note, by: db.actor, at: nowS } } };

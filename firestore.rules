@@ -57,7 +57,9 @@ service cloud.firestore {
       // one status document per intern: ack / submitted (approved only for tasks that need no review)
       match /progress/{uid} {
         allow read: if approved();
-        allow write: if staff();
+        allow delete: if staff();
+        // staff set anyone's status, except passing or sending back their own work
+        allow create, update: if staff() && !(uid == request.auth.uid && request.resource.data.s in ['approved', 'changes']);
         allow create, update: if approved() && isAssignee(tid, request.auth.uid)
           && (uid == request.auth.uid || (task(tid).mode == 'group' && isAssignee(tid, uid)))
           && request.resource.data.keys().hasOnly(['s', 'at'])
@@ -72,7 +74,7 @@ service cloud.firestore {
           && request.resource.data.for.hasAll([request.auth.uid])
           && (request.resource.data.review == null
               || (task(tid).needsReview == false && request.resource.data.review.decision == 'approved'));
-        allow update: if staff();
+        allow update: if staff() && !(request.auth.uid in resource.data.for);
         allow delete: if staff() || (resource.data.by == request.auth.uid && resource.data.review == null);
       }
     }

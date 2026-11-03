@@ -1,17 +1,17 @@
 // Work-order rows used by "งานของฉัน", "งานทั้งหมด" and the overview queues.
 import { html } from '../vendor/preact-htm.js';
 import { useApp } from '../ctx.js';
-import { stateOf, isLate, tally, woNumber, displayName, STATES, dueInfo } from '../model.js';
-import { Lamp, DueChip, Prio, Avatar, StateTag } from '../ui.js';
+import { stateOf, isLate, woNumber, displayName, STATES, worstState, dueInfo } from '../model.js';
+import { Lamp, DueChip, PrioChip, StateTag } from '../ui.js';
 
 export function planTitle(db, planId) {
   const p = db.plans[planId];
-  return p ? p.title : 'ยังไม่ผูกกับแผน';
+  return p ? p.title : 'ยังไม่ผูกกับหัวข้องาน';
 }
 
 /** Row as an intern sees it: one lamp for "my" state, quick "รับทราบ". */
 export function MyRow({ task, uid }) {
-  const { db, now, openTask, store, toast } = useApp();
+  const { now, openTask, store, toast } = useApp();
   const s = stateOf(task, uid);
   const late = isLate(task, uid, now);
   const note = task.state[uid] && task.state[uid].note;
@@ -24,41 +24,40 @@ export function MyRow({ task, uid }) {
       <${Lamp} state=${s} late=${late} />
       <span class="wo-main">
         <span class="wo-title">${task.order != null ? html`<b class="wo-order">#${task.order}</b>` : ''}${task.title}</span>
-        <span class="wo-meta"><span class="mono">${woNumber(task)}</span><span>${planTitle(db, task.planId)}</span><span>มอบโดย ${task.assignerName}</span></span>
+        <span class="wo-meta"><span class="mono">${woNumber(task)}</span><span>มอบโดย ${task.assignerName}</span>${task.mode === 'group' ? html`<span>งานกลุ่ม</span>` : ''}</span>
         ${s === 'changes' && note ? html`<span class="wo-note">ให้แก้: ${note}</span>` : ''}
       </span>
       <span class="wo-side">
-        <${DueChip} due=${task.due} now=${now} done=${s === 'approved'} />
-        <span class="wo-side-row">${s !== 'assigned' ? html`<${StateTag} state=${s} late=${late} compact />` : ''}<${Prio} value=${task.priority} /></span>
+        <${DueChip} due=${task.due} now=${now} done=${s === 'approved' || s === 'submitted'} />
+        <span class="wo-side-row">${s !== 'assigned' ? html`<${StateTag} state=${s} late=${late} />` : ''}<${PrioChip} value=${task.priority} /></span>
       </span>
     </button>
     ${s === 'assigned' ? html`<button type="button" class="btn btn--ack" onClick=${ack}>รับทราบ</button>` : ''}
   </li>`;
 }
 
-/** Row as staff sees it: every assignee as a lamp-ringed avatar. */
-export function StaffRow({ task, highlight }) {
+/** Row as staff sees it: one lamp for whoever needs attention first, then each intern by name. */
+export function StaffRow({ task }) {
   const { db, now, openTask } = useApp();
-  const t = tally(task, now);
-  const done = t.approved === t.total;
-  const summary = [
-    t.late ? `${t.late} เลยกำหนด` : '',
-    t.submitted ? `${t.submitted} รอตรวจ` : '',
-    t.changes ? `${t.changes} ให้แก้` : '',
-    t.assigned ? `${t.assigned} ยังไม่รับทราบ` : '',
-  ].filter(Boolean).join(' · ') || (done ? 'ผ่านครบทุกคน' : 'รับทราบแล้วทุกคน');
-  return html`<li class=${`wo wo--staff${done ? ' is-done' : ''}${highlight ? ' is-hl' : ''}`}>
+  const worst = worstState(task, now);
+  const allDone = task.assignees.every((u) => stateOf(task, u) === 'approved');
+  const anyLate = task.assignees.some((u) => isLate(task, u, now));
+  const pastDue = dueInfo(task.due, now).tone === 'late';
+  return html`<li class=${`wo wo--staff${allDone ? ' is-done' : ''}`}>
     <button type="button" class="wo-open" onClick=${() => openTask(task.no)}>
-      <span class="wo-people">
-        ${task.assignees.map((u) => html`<${Avatar} user=${db.users[u]} state=${stateOf(task, u)} late=${isLate(task, u, now)} size="sm" />`)}
-      </span>
+      <${Lamp} state=${worst.state} late=${worst.late} />
       <span class="wo-main">
         <span class="wo-title">${task.order != null ? html`<b class="wo-order">#${task.order}</b>` : ''}${task.title}</span>
-        <span class="wo-meta"><span class="mono">${woNumber(task)}</span><span>${task.mode === 'group' ? 'งานกลุ่ม' : task.assignees.length > 1 ? 'แยกรายคน' : displayName(db.users[task.assignees[0]])}</span><span>${summary}</span></span>
+        <span class="wo-meta"><span class="mono">${woNumber(task)}</span>${task.mode === 'group' ? html`<span>งานกลุ่ม</span>` : ''}</span>
+        <span class="wo-people">${task.assignees.map((u) => {
+          const s = stateOf(task, u);
+          const late = isLate(task, u, now);
+          return html`<span class="person" title=${late ? 'เลยกำหนด' : STATES[s].label}><${Lamp} state=${s} late=${late} size="sm" />${displayName(db.users[u])}<small>${late ? 'เลยกำหนด' : STATES[s].label}</small></span>`;
+        })}</span>
       </span>
       <span class="wo-side">
-        <${DueChip} due=${task.due} now=${now} done=${done || (t.late === 0 && dueInfo(task.due, now).tone === 'late')} />
-        <${Prio} value=${task.priority} />
+        <${DueChip} due=${task.due} now=${now} done=${allDone || (pastDue && !anyLate)} />
+        <${PrioChip} value=${task.priority} />
       </span>
     </button>
   </li>`;

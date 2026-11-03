@@ -133,27 +133,48 @@ export function compareTasks(a, b) {
   return (a.created || '') < (b.created || '') ? -1 : 1;
 }
 
-/** Group an intern's open tasks the way a person thinks about them. */
+/** Group an intern's open tasks by what to do next: late, sent back, due today, new, then by date. */
 export function bucketsFor(tasks, uid, now = new Date()) {
-  const groups = { late: [], today: [], tomorrow: [], week: [], later: [] };
+  const g = { late: [], changes: [], today: [], fresh: [], tomorrow: [], week: [], later: [] };
   for (const t of tasks) {
-    if (isLate(t, uid, now)) { groups.late.push(t); continue; }
+    const s = stateOf(t, uid);
     const d = toLocalDate(t.due);
     const diff = d ? dayDiff(d, now) : 99;
-    if (diff <= 0) groups.today.push(t);
-    else if (diff === 1) groups.tomorrow.push(t);
-    else if (diff < 7) groups.week.push(t);
-    else groups.later.push(t);
+    if (isLate(t, uid, now)) g.late.push(t);
+    else if (s === 'changes') g.changes.push(t);
+    else if (diff <= 0) g.today.push(t);
+    else if (s === 'assigned') g.fresh.push(t);
+    else if (diff === 1) g.tomorrow.push(t);
+    else if (diff < 7) g.week.push(t);
+    else g.later.push(t);
   }
-  for (const k of Object.keys(groups)) groups[k].sort(compareTasks);
+  for (const k of Object.keys(g)) g[k].sort(compareTasks);
   return [
-    { key: 'late', title: 'เลยกำหนด', items: groups.late },
-    { key: 'today', title: 'วันนี้', items: groups.today },
-    { key: 'tomorrow', title: 'พรุ่งนี้', items: groups.tomorrow },
-    { key: 'week', title: '7 วันข้างหน้า', items: groups.week },
-    { key: 'later', title: 'หลังจากนั้น', items: groups.later },
-  ].filter((g) => g.items.length);
+    { key: 'late', title: 'เลยกำหนด', items: g.late },
+    { key: 'changes', title: 'ให้แก้', items: g.changes },
+    { key: 'today', title: 'ครบกำหนดวันนี้', items: g.today },
+    { key: 'fresh', title: 'งานใหม่ ยังไม่รับทราบ', items: g.fresh },
+    { key: 'tomorrow', title: 'พรุ่งนี้', items: g.tomorrow },
+    { key: 'week', title: '7 วันข้างหน้า', items: g.week },
+    { key: 'later', title: 'หลังจากนั้น', items: g.later },
+  ].filter((x) => x.items.length);
 }
+
+/** The state that needs attention first across a task's interns (for one lamp per row). */
+export function worstState(task, now = new Date()) {
+  const rank = { stop: 0, wait: 1, idle: 2, run: 3, ok: 4 };
+  let best = { state: 'approved', late: false, r: 9 };
+  for (const u of task.assignees) {
+    const s = stateOf(task, u);
+    const late = isLate(task, u, now);
+    const r = late ? 0 : rank[STATES[s].lamp];
+    if (r < best.r) best = { state: s, late, r };
+  }
+  return best;
+}
+
+export const weeksLabel = (weeks) => (weeks.length ? `สัปดาห์ ${Math.min(...weeks)}–${Math.max(...weeks)}` : '');
+export const shortTitle = (t, n = 34) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
 
 export const woNumber = (t) => `WO-${String(t.no).padStart(3, '0')}`;
 

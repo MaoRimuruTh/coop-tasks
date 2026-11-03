@@ -58,7 +58,20 @@ export function DueChip({ due, now, done }) {
   return html`<span class=${`due due--${d.tone}`}>${d.text}</span>`;
 }
 
-/** Priority as a 3-bar gauge; "ด่วนมาก" is a filled red block. */
+/** In lists only the two levels that change what you do get a mark. */
+export function PrioChip({ value }) {
+  if (value === 4) return html`<span class="pchip pchip--p4">ด่วนมาก</span>`;
+  if (value === 3) return html`<span class="pchip pchip--p3">สูง</span>`;
+  return null;
+}
+
+/** Priority written out (work-order header). */
+export function PrioLabel({ value }) {
+  if (value === 4 || value === 3) return html`<${PrioChip} value=${value} />`;
+  return html`<span class="pill">ความสำคัญ${value === 1 ? 'ต่ำ' : 'ปกติ'}</span>`;
+}
+
+/** Priority as a 3-bar gauge with its label; "ด่วนมาก" is a filled red block. */
 export function Prio({ value, withLabel }) {
   const p = priorityOf(value);
   if (value === 4) {
@@ -91,7 +104,7 @@ export function Field({ label, hint, error, children, id }) {
   </div>`;
 }
 
-export function Sheet({ title, onClose, children, footer, wide }) {
+export function Sheet({ title, onClose, children, footer, wide, headActions }) {
   const ref = useRef();
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -105,7 +118,7 @@ export function Sheet({ title, onClose, children, footer, wide }) {
     <section class=${`sheet${wide ? ' sheet--wide' : ''}`} role="dialog" aria-modal="true" aria-label=${title} ref=${ref}>
       <header class="sheet-head">
         <h2>${title}</h2>
-        <button type="button" class="icon-btn" onClick=${onClose} aria-label="ปิด"><${Icon} name="close" /></button>
+        <span class="sheet-head-actions">${headActions || ''}<button type="button" class="icon-btn" onClick=${onClose} aria-label="ปิด"><${Icon} name="close" /></button></span>
       </header>
       <div class="sheet-body">${children}</div>
       ${footer ? html`<footer class="sheet-foot">${footer}</footer>` : ''}

@@ -1,12 +1,12 @@
 // "งานทั้งหมด" — every work order, filtered by intern / status / plan item.
 import { html, useState, useEffect } from '../vendor/preact-htm.js';
 import { useApp } from '../ctx.js';
-import { stateOf, isLate, tally, compareTasks, displayName } from '../model.js';
+import { stateOf, isLate, tally, compareTasks, displayName, weeksLabel } from '../model.js';
 import { Empty, Icon } from '../ui.js';
 import { StaffRow } from './rows.js';
 
 const STATUS_OPTIONS = [
-  { value: 'open', label: 'ยังไม่จบ' },
+  { value: 'open', label: 'ยังไม่ผ่าน' },
   { value: 'late', label: 'เลยกำหนด' },
   { value: 'submitted', label: 'รอตรวจ' },
   { value: 'changes', label: 'ให้แก้' },
@@ -48,7 +48,7 @@ export function AllTasks() {
 
   return html`<section class="page">
     <header class="page-head">
-      <div><p class="eyebrow">ใบสั่งงานทั้งหมด ${Object.keys(db.tasks).length} ใบ</p><h1>งานทั้งหมด</h1></div>
+      <h1>งานทั้งหมด <span class="count">${Object.keys(db.tasks).length}</span></h1>
     </header>
 
     <div class="filters">
@@ -62,10 +62,10 @@ export function AllTasks() {
           <select id="f-status" value=${status} onChange=${(e) => setStatus(e.target.value)}>
             ${STATUS_OPTIONS.map((o) => html`<option value=${o.value}>${o.label}</option>`)}
           </select></label>
-        <label class="select-wrap select-wrap--grow"><span class="sr-only">งานใหญ่ในแผน</span>
+        <label class="select-wrap select-wrap--grow"><span class="sr-only">หัวข้องาน</span>
           <select id="f-plan" value=${plan} onChange=${(e) => setPlan(e.target.value)}>
-            <option value="">ทุกงานในแผน</option>
-            ${plans.map((p) => html`<option value=${p.id}>W${Math.min(...p.weeks)}–${Math.max(...p.weeks)} · ${p.title}</option>`)}
+            <option value="">ทุกหัวข้องาน</option>
+            ${plans.map((p) => html`<option value=${p.id}>${p.title} (${weeksLabel(p.weeks)})</option>`)}
           </select></label>
       </div>
     </div>

@@ -1,6 +1,6 @@
 // App shell: data subscription, hash routing, navigation, demo persona switcher, toasts.
 import { html, render, useEffect, useMemo, useState, useCallback, useRef } from './vendor/preact-htm.js';
-import { calendar, weekOf, displayName, isStudent, canAssign, fmtDay, fmtRange, TH_DAYS } from './model.js';
+import { calendar, weekOf, displayName, isStudent, canAssign, fmtDay, fmtRange, TH_DAYS, stateOf, isLate } from './model.js';
 import { Icon } from './ui.js';
 import { Ctx } from './ctx.js';
 import { MyTasks } from './views/my.js';
@@ -17,12 +17,13 @@ import { ProfileSheet } from './views/profile.js';
 const ROLE_LABEL = { admin: 'แอดมิน', supervisor: 'พนักงานผู้ดูแล', student: 'นักศึกษา', pending: 'รออนุมัติ' };
 export const roleLabel = (u) => (u.role === 'admin' && u.isStudent ? 'แอดมิน · นักศึกษา' : ROLE_LABEL[u.role] || u.role);
 
-function tabsFor(me) {
+function tabsFor(me, badges) {
   const t = [];
-  if (isStudent(me)) t.push({ id: 'my', label: 'งานของฉัน', icon: 'inbox' });
-  if (canAssign(me)) t.push({ id: 'board', label: 'ภาพรวม', icon: 'board' }, { id: 'tasks', label: 'งานทั้งหมด', icon: 'list' });
+  if (isStudent(me)) t.push({ id: 'my', label: 'งานของฉัน', icon: 'inbox', badge: badges.mine });
+  if (canAssign(me)) t.push({ id: 'board', label: 'ภาพรวม', icon: 'board', badge: badges.review }, { id: 'tasks', label: 'งานทั้งหมด', icon: 'list' });
   t.push({ id: 'plan', label: 'แผน 16 สัปดาห์', short: 'แผน', icon: 'plan' });
-  t.push({ id: 'form', label: 'ฟอร์มมหาลัย', short: 'ฟอร์ม', icon: 'form', deskOnly: me.role === 'admin' && isStudent(me) });
+  // used a few times in the whole internship: on phones it is a button on the plan page
+  t.push({ id: 'form', label: 'ฟอร์มส่งมหาลัย', short: 'ฟอร์ม', icon: 'form', deskOnly: true });
   if (me.role === 'admin') t.push({ id: 'admin', label: 'จัดการระบบ', short: 'จัดการ', icon: 'gear' });
   return t;
 }
@@ -88,7 +89,15 @@ function App({ store }) {
   if (store.mode !== 'demo' && !me) return html`<${SignIn} store=${store} />`;
   if (me && (me.role === 'pending' || me.role === 'blocked')) return html`<${Waiting} store=${store} me=${me} />`;
 
-  const tabs = tabsFor(me);
+  const badges = { mine: 0, review: 0 };
+  for (const t of Object.values(db.tasks)) {
+    if (t.assignees.includes(me.uid)) {
+      const s = stateOf(t, me.uid);
+      if (s === 'assigned' || s === 'changes' || isLate(t, me.uid, now)) badges.mine += 1;
+    }
+    if (canAssign(me)) badges.review += t.assignees.filter((u) => u !== me.uid && stateOf(t, u) === 'submitted').length;
+  }
+  const tabs = tabsFor(me, badges);
   const woMatch = /^wo-(\d+)$/.exec(route);
   let tab = woMatch ? (lastTab.current || tabs[0].id) : route;
   if (!tabs.some((t) => t.id === tab)) tab = tabs[0].id;
@@ -124,7 +133,8 @@ function App({ store }) {
 
       <nav class="nav" aria-label="เมนูหลัก">
         ${tabs.map((t) => html`<a href=${`#${t.id}`} class=${`nav-item${t.id === tab ? ' is-on' : ''}${t.deskOnly ? ' nav-item--desk' : ''}`} aria-current=${t.id === tab ? 'page' : undefined}>
-          <${Icon} name=${t.icon} size=${22} /><span class="nav-long">${t.label}</span><span class="nav-short">${t.short || t.label}</span></a>`)}
+          <span class="nav-icon"><${Icon} name=${t.icon} size=${22} />${t.badge ? html`<b class="nav-badge" aria-label=${`${t.badge} รายการ`}>${t.badge}</b>` : ''}</span>
+          <span class="nav-long">${t.label}</span><span class="nav-short">${t.short || t.label}</span></a>`)}
       </nav>
 
       <main class="main" id="main">

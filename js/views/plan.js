@@ -1,7 +1,7 @@
 // "แผน 16 สัปดาห์" — the production-schedule style board of big tasks (หัวข้องาน).
 import { html, useState } from '../vendor/preact-htm.js';
 import { useApp } from '../ctx.js';
-import { weekOf, fmtRange, fmtDate, canAssign, displayName, tally } from '../model.js';
+import { weekOf, fmtRange, fmtDate, canAssign, displayName, tally, weeksLabel } from '../model.js';
 import { Sheet, Field, Icon, ConfirmButton, Empty } from '../ui.js';
 
 function PlanEditor({ plan, onClose }) {
@@ -29,7 +29,7 @@ function PlanEditor({ plan, onClose }) {
   const remove = async () => {
     try { await store.deletePlan(plan.id); toast('ลบออกจากแผนแล้ว'); onClose(); } catch (ex) { setErr({ form: ex.message }); }
   };
-  return html`<${Sheet} title=${plan ? 'แก้ไขงานในแผน' : 'เพิ่มงานในแผน'} onClose=${onClose}
+  return html`<${Sheet} title=${plan ? 'แก้ไขหัวข้องาน' : 'เพิ่มหัวข้องาน'} onClose=${onClose}
     footer=${html`${plan ? html`<${ConfirmButton} label="ลบ" confirmLabel="กดอีกครั้งเพื่อลบ" icon="trash" onConfirm=${remove} />` : ''}
       <span class="foot-space"></span>
       <button type="button" class="btn btn--ghost" onClick=${onClose}>ยกเลิก</button>
@@ -89,23 +89,23 @@ export function PlanView() {
 
   return html`<section class="page page--wide">
     <header class="page-head">
-      <div><p class="eyebrow">${fmtRange(cal.start, cal.end)} · 16 สัปดาห์ · ทำงานจันทร์–เสาร์</p><h1>แผน 16 สัปดาห์</h1></div>
+      <div><h1>แผน 16 สัปดาห์</h1><p class="page-sub">${fmtRange(cal.start, cal.end)} · ทำงานจันทร์–เสาร์</p></div>
       <div class="head-actions">
         <button type="button" class="btn btn--ghost" onClick=${() => go('form')}><${Icon} name="form" size=${18} />ฟอร์มส่งมหาลัย</button>
-        ${staff ? html`<button type="button" class="btn btn--primary" onClick=${() => setEditing({})}><${Icon} name="plus" size=${18} />เพิ่มงานในแผน</button>` : ''}
+        ${staff ? html`<button type="button" class="btn btn--primary" onClick=${() => setEditing({})}><${Icon} name="plus" size=${18} />เพิ่มหัวข้องาน</button>` : ''}
       </div>
     </header>
     <p class="note-band">เดือนที่ 3–4 เป็นงานโปรเจคของนักศึกษา สั่งเป็นงานกลุ่มร่วมกับนักศึกษาฝึกงานคนอื่น หรือสั่งแยกรายคนก็ได้</p>
 
-    ${plans.length === 0 ? html`<${Empty} title="ยังไม่มีงานในแผน" text=${staff ? 'กด “เพิ่มงานในแผน” แล้วแตะเลือกสัปดาห์ที่ทำ' : 'พี่ผู้ดูแลจะเป็นคนลงแผน'} />` : html`
+    ${plans.length === 0 ? html`<${Empty} title="ยังไม่มีหัวข้องานในแผน" text=${staff ? 'กด “เพิ่มหัวข้องาน” แล้วแตะเลือกสัปดาห์ที่ทำ' : 'พี่ผู้ดูแลจะเป็นคนลงแผน'} />` : html`
     <ul class="plan-strips" aria-label="แผนแบบย่อสำหรับมือถือ">
-      <li class="ps-head"><div class="strip">${cal.months.map((mo) => html`<span class="strip-label"><b>เดือนที่ ${mo.m}</b><span>${fmtRange(mo.from, mo.to)}</span></span>`)}</div></li>
+      <li class="ps-head"><div class="strip">${cal.months.map((mo) => html`<span class="strip-label"><b>เดือนที่ ${mo.m}</b><span>${fmtDate(mo.from)} –</span><span>${fmtDate(mo.to)}</span></span>`)}</div></li>
       ${plans.map((p) => {
         const st = statsFor(p);
         return html`<li class=${`ps-item ps-item--${p.kind}${mine(p) ? '' : ' is-other'}`} key=${`s-${p.id}`}>
           <div class="g-label-text">
             ${staff ? html`<button type="button" class="g-title" onClick=${() => setEditing(p)}>${p.title}</button>` : html`<span class="g-title">${p.title}</span>`}
-            <small>W${Math.min(...p.weeks)}–${Math.max(...p.weeks)} · ${who(p)}${p.note ? ` · ${p.note}` : ''}${st.n ? ` · งานย่อย ${st.done}/${st.n} เสร็จ` : ''}</small>
+            <small>${weeksLabel(p.weeks)} · ${who(p)}${p.note ? ` · ${p.note}` : ''}${st.n ? ` · งานย่อย ${st.done}/${st.n} เสร็จ` : ''}</small>
           </div>
           <div class="strip" aria-hidden="true">${[1, 2, 3, 4].map((m) => html`<span class="strip-m">${[0, 1, 2, 3].map((i) => {
             const n = 4 * (m - 1) + i + 1;
