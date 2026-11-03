@@ -75,7 +75,7 @@ function PlanEditor({ plan, onClose }) {
 export function PlanView() {
   const { db, me, now, cal, go } = useApp();
   const [editing, setEditing] = useState(null); // null | {} | plan
-  const staff = canAssign(me);
+  const staff = canAssign(me, now);
   const nowWeek = weekOf(cal, now);
   const plans = Object.values(db.plans).sort((a, b) => (Math.min(...a.weeks) - Math.min(...b.weeks)) || ((a.order ?? 0) - (b.order ?? 0)));
   const tasks = Object.values(db.tasks);
@@ -89,7 +89,7 @@ export function PlanView() {
 
   return html`<section class="page page--wide">
     <header class="page-head">
-      <div><h1>แผน 16 สัปดาห์</h1><p class="page-sub">${fmtRange(cal.start, cal.end)} · ทำงานจันทร์–เสาร์</p></div>
+      <div><h1>แผน 16 สัปดาห์</h1><p class="page-sub">${fmtRange(cal.start, cal.end)} · ฝึกงาน${db.settings.workDays || 'จันทร์–เสาร์'} ${db.settings.workStart || '08:00'}–${db.settings.workEnd || '17:00'} น.</p></div>
       <div class="head-actions">
         <button type="button" class="btn btn--ghost" onClick=${() => go('form')}><${Icon} name="form" size=${18} />ฟอร์มส่งมหาลัย</button>
         ${staff ? html`<button type="button" class="btn btn--primary" onClick=${() => setEditing({})}><${Icon} name="plus" size=${18} />เพิ่มหัวข้องาน</button>` : ''}

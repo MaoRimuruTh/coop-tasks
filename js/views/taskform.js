@@ -1,29 +1,33 @@
 // Create / edit a work order. Built for one thumb on a phone: chips over dropdowns.
 import { html, useState } from '../vendor/preact-htm.js';
 import { useApp } from '../ctx.js';
-import { PRIORITIES, addDays, dateKey, toLocalDate, weekOf, displayName, fmtDay, weeksLabel } from '../model.js';
+import { PRIORITIES, addDays, dateKey, toLocalDate, weekOf, displayName, fmtDay, weeksLabel, isInternAdmin } from '../model.js';
 import { Sheet, Field, Icon, ConfirmButton } from '../ui.js';
 
-const quickDates = (now) => {
+// due times default to the end of the interns' working day (จัดการระบบ → เวลาฝึกงาน)
+const quickDates = (now, end) => {
   const fri = addDays(now, (5 - now.getDay() + 7) % 7 || 0);
   return [
-    { label: 'วันนี้ 17:00', d: now, t: '17:00' },
-    { label: 'พรุ่งนี้ 17:00', d: addDays(now, 1), t: '17:00' },
-    { label: `ศุกร์นี้ (${fmtDay(fri).split(' ').slice(1).join(' ')})`, d: fri, t: '17:00' },
-    { label: 'อีก 7 วัน', d: addDays(now, 7), t: '17:00' },
+    { label: `วันนี้ ${end}`, d: now, t: end },
+    { label: `พรุ่งนี้ ${end}`, d: addDays(now, 1), t: end },
+    { label: `ศุกร์นี้ (${fmtDay(fri).split(' ').slice(1).join(' ')})`, d: fri, t: end },
+    { label: 'อีก 7 วัน', d: addDays(now, 7), t: end },
   ];
 };
 
 export function TaskForm({ task, onClose }) {
   const { db, me, now, cal, students, store, toast, openTask } = useApp();
   const editing = !!task;
-  const due0 = task ? task.due : `${dateKey(addDays(now, 1))}T17:00`;
+  const end = (db.settings && db.settings.workEnd) || '17:00';
+  // an intern with assigner mode open assigns other interns only
+  const pickable = isInternAdmin(me) ? students.filter((u) => u.uid !== me.uid) : students;
+  const due0 = task ? task.due : `${dateKey(addDays(now, 1))}T${end}`;
   const [title, setTitle] = useState(task ? task.title : '');
   const [details, setDetails] = useState(task ? task.details : '');
   const [assignees, setAssignees] = useState(task ? task.assignees : []);
   const [mode, setMode] = useState(task ? task.mode : 'individual');
   const [date, setDate] = useState(due0.slice(0, 10));
-  const [time, setTime] = useState(due0.slice(11, 16) || '17:00');
+  const [time, setTime] = useState(due0.slice(11, 16) || end);
   const [priority, setPriority] = useState(task ? task.priority : 2);
   const [order, setOrder] = useState(task && task.order != null ? String(task.order) : '');
   const [assigner, setAssigner] = useState(task ? task.assignerName : displayName(me));
@@ -39,14 +43,14 @@ export function TaskForm({ task, onClose }) {
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
 
-  const allOn = students.length > 0 && students.every((u) => assignees.includes(u.uid));
+  const allOn = pickable.length > 0 && pickable.every((u) => assignees.includes(u.uid));
   const toggle = (uid) => {
     const next = assignees.includes(uid) ? assignees.filter((x) => x !== uid) : [...assignees, uid];
     setAssignees(next);
     if (!touchedPlan) setPlanId(suggestPlan(next, `${date}T${time}`));
   };
   const toggleAll = () => {
-    const next = allOn ? [] : students.map((u) => u.uid);
+    const next = allOn ? [] : pickable.map((u) => u.uid);
     setAssignees(next);
     if (!touchedPlan) setPlanId(suggestPlan(next, `${date}T${time}`));
   };
@@ -71,7 +75,7 @@ export function TaskForm({ task, onClose }) {
     const data = {
       title: title.trim(), details: details.trim(), assignees,
       mode: assignees.length > 1 ? mode : 'individual',
-      due: `${date}T${time || '17:00'}`, priority, order: order ? Number(order) : null,
+      due: `${date}T${time || end}`, priority, order: order ? Number(order) : null,
       planId, assignerName: assigner.trim(), needsReview,
     };
     setBusy(true);
@@ -109,7 +113,7 @@ export function TaskForm({ task, onClose }) {
       <${Field} label="มอบหมายให้" error=${errors.assignees}>
         <div class="chips" role="group" aria-label="มอบหมายให้">
           <button type="button" class=${`chip${allOn ? ' is-on' : ''}`} aria-pressed=${allOn} onClick=${toggleAll}>ทุกคน</button>
-          ${students.map((u) => html`<button type="button" class=${`chip${assignees.includes(u.uid) ? ' is-on' : ''}`}
+          ${pickable.map((u) => html`<button type="button" class=${`chip${assignees.includes(u.uid) ? ' is-on' : ''}`}
             aria-pressed=${assignees.includes(u.uid)} onClick=${() => toggle(u.uid)}>${displayName(u)}</button>`)}
         </div>
       <//>
@@ -123,7 +127,7 @@ export function TaskForm({ task, onClose }) {
       <//>` : ''}
 
       <${Field} label="กำหนดส่ง" error=${errors.due}>
-        <div class="chips chips--quick">${quickDates(now).map((q) => {
+        <div class="chips chips--quick">${quickDates(now, end).map((q) => {
           const on = date === dateKey(q.d) && time === q.t;
           return html`<button type="button" class=${`chip chip--sm${on ? ' is-on' : ''}`} onClick=${() => setDue(dateKey(q.d), q.t)}>${q.label}</button>`;
         })}</div>

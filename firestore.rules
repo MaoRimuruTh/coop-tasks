@@ -1,19 +1,45 @@
 rules_version = '2';
 // กฎสิทธิ์ของเว็บใบสั่งงานฝึกงาน — วางทั้งไฟล์นี้ใน Firebase console → Firestore Database → Rules แล้วกด Publish
 // pending = ล็อกอินแล้วแต่แอดมินยังไม่อนุมัติ: อ่านได้แค่ข้อมูลของตัวเอง
+// แอดมินที่เป็นนักศึกษาด้วย: สั่งงาน แก้ใบสั่งงาน และลงแผนไม่ได้ จนกว่าจะปลดล็อกด้วยรหัสใช้ครั้งเดียว (ครั้งละ 1 ชั่วโมง)
+//   และตรวจงานใครไม่ได้เลย รหัสเก็บไว้ที่ชิเอล ในไฟล์นี้มีแค่ค่า SHA-256 ของรหัส
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
-    function profile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function userPath(uid) { return /databases/$(database)/documents/users/$(uid); }
+    function profile() { return get(userPath(request.auth.uid)).data; }
     function role() {
-      return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) ? profile().role : 'none';
+      return signedIn() && exists(userPath(request.auth.uid)) ? profile().role : 'none';
     }
     function approved() { return role() in ['admin', 'supervisor', 'student']; }
-    function staff() { return role() in ['admin', 'supervisor']; }
     function admin() { return role() == 'admin'; }
+    function internAdmin() { return admin() && profile().get('isStudent', false) == true; }
+    function unlocked() {
+      return profile().get('assignerUntil', null) is timestamp && profile().assignerUntil > request.time;
+    }
+    // assign work and edit the plan: supervisors, admins who are not interns, intern-admins with an open unlock
+    function assigner() { return role() == 'supervisor' || (admin() && (!internAdmin() || unlocked())); }
+    // pass or send back work: never an intern
+    function reviewer() { return role() == 'supervisor' || (admin() && !internAdmin()); }
+    // an intern-admin never touches a work order he is on, even while unlocked
+    function notMine(data) { return !internAdmin() || !(request.auth.uid in data.assignees); }
     function task(tid) { return get(/databases/$(database)/documents/tasks/$(tid)).data; }
     function isAssignee(tid, uid) { return uid in task(tid).assignees; }
-    function onlyChanged(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+    function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
+    function onlyChanged(keys) { return changed().hasOnly(keys); }
+    // SHA-256 (hex) of the one-time unlock codes
+    function unlockHashes() { return [
+      '3cc15ba87c91da6643059e7311f996ca2833b174e0c0ff61d96bfbbe9d2e5f2a',
+      '69d56a6c1f34cd2b1f99c92ed2f2a79a7e44d208f4311847353888f072d3e7bb',
+      'd186b5a5ab6e85e490cd2a69e628f447b73e33f944937ec20922f3f5bed66e14',
+      'f7e0794839da34d3acc48db38b3d72bb1ae552b3805d310bb07dd630ea349273',
+      'e1a2ba6af81787b1a79a90e9826d1797fde200ba44509e10a56eda0a1b6e58ab',
+      'a6a5b9a7f53057921523cccef0f290c6249dbfff6dffc8b1554855874e708661',
+      '4b936479a9059c4501c3c2050e658074554af148aa5b1fb59855ae5002a07622',
+      '4fc21c4ae25acd8482ec1eb36b7efa9ba45cc581110a79f747d867d55d107821',
+      '27466b1244e2eea395b43df71cfd4aca74e037367efd103f205a414c028e2d7e',
+      'cc3fad3982a5ba47cd9948f9c5545169d2b1cb0eb7766257ae8429d871c3b1b5'
+    ]; }
 
     match /users/{uid} {
       allow read: if approved() || (signedIn() && request.auth.uid == uid);
@@ -21,15 +47,42 @@ service cloud.firestore {
       allow create: if signedIn() && request.auth.uid == uid
         && request.resource.data.role == 'pending'
         && request.resource.data.keys().hasOnly(['uid', 'name', 'email', 'photo', 'role', 'isStudent', 'created']);
-      allow update: if admin()
-        // one-time bootstrap: whoever creates meta/admin in the same batch becomes admin
+      allow update: if
+        // admins manage other people; nobody changes their own role, and the unlock fields only change through a code
+        (admin() && !changed().hasAny(['assignerUntil', 'lastUnlock'])
+            && (uid != request.auth.uid || !changed().hasAny(['role', 'isStudent'])))
+        // one-time bootstrap: whoever creates meta/admin in the same batch becomes admin (only while it does not exist yet)
         || (signedIn() && request.auth.uid == uid
+            && !exists(/databases/$(database)/documents/meta/admin)
             && getAfter(/databases/$(database)/documents/meta/admin).data.uid == request.auth.uid
             && onlyChanged(['role', 'isStudent']) && request.resource.data.role == 'admin')
         // people may edit their own profile details, never their role
         || (signedIn() && request.auth.uid == uid && approved()
-            && onlyChanged(['name', 'nickname', 'studentId', 'major', 'faculty', 'position']));
-      allow delete: if admin();
+            && onlyChanged(['name', 'nickname', 'studentId', 'major', 'faculty', 'position']))
+        // an intern-admin opens assigner mode for up to an hour by spending a fresh one-time code in the same batch
+        || (signedIn() && request.auth.uid == uid && internAdmin()
+            && onlyChanged(['assignerUntil', 'lastUnlock'])
+            && request.resource.data.assignerUntil is timestamp
+            && request.resource.data.assignerUntil > request.time
+            && request.resource.data.assignerUntil < request.time + duration.value(75, 'm')
+            && request.resource.data.lastUnlock is string
+            && !exists(/databases/$(database)/documents/unlocks/$(request.resource.data.lastUnlock))
+            && existsAfter(/databases/$(database)/documents/unlocks/$(request.resource.data.lastUnlock)))
+        // locking again early is always allowed
+        || (signedIn() && request.auth.uid == uid && onlyChanged(['assignerUntil']) && request.resource.data.assignerUntil == null);
+      allow delete: if admin() && uid != request.auth.uid;
+    }
+
+    // a used code stays here, so it can never be used again
+    match /unlocks/{code} {
+      allow read: if false;
+      allow create: if signedIn() && internAdmin()
+        && hashing.sha256(code).toHexString().lower() in unlockHashes()
+        && request.resource.data.keys().hasOnly(['by', 'at', 'reason', 'until'])
+        && request.resource.data.by == request.auth.uid
+        && request.resource.data.reason is string && request.resource.data.reason.size() >= 5 && request.resource.data.reason.size() <= 300
+        && request.resource.data.until == getAfter(userPath(request.auth.uid)).data.assignerUntil;
+      allow update, delete: if false;
     }
 
     match /meta/admin {
@@ -39,7 +92,7 @@ service cloud.firestore {
     }
     match /meta/counter {
       allow read: if approved();
-      allow write: if staff();
+      allow write: if assigner();
     }
     match /settings/{id} {
       allow read: if approved();
@@ -47,19 +100,23 @@ service cloud.firestore {
     }
     match /plans/{id} {
       allow read: if approved();
-      allow write: if staff();
+      allow write: if assigner();
     }
 
     match /tasks/{tid} {
       allow read: if approved();
-      allow write: if staff();
+      allow create: if assigner() && notMine(request.resource.data);
+      allow update: if assigner() && notMine(resource.data) && notMine(request.resource.data);
+      allow delete: if assigner() && notMine(resource.data);
 
       // one status document per intern: ack / submitted (approved only for tasks that need no review)
       match /progress/{uid} {
         allow read: if approved();
-        allow delete: if staff();
-        // staff set anyone's status, except passing or sending back their own work
-        allow create, update: if staff() && !(uid == request.auth.uid && request.resource.data.s in ['approved', 'changes']);
+        allow delete: if assigner() && (!internAdmin() || uid != request.auth.uid);
+        // assigners set other people's status; only reviewers pass or send back, never their own work
+        allow create, update: if assigner() && (!internAdmin() || uid != request.auth.uid)
+          && !(request.resource.data.s in ['approved', 'changes']);
+        allow create, update: if reviewer() && uid != request.auth.uid;
         allow create, update: if approved() && isAssignee(tid, request.auth.uid)
           && (uid == request.auth.uid || (task(tid).mode == 'group' && isAssignee(tid, uid)))
           && request.resource.data.keys().hasOnly(['s', 'at'])
@@ -74,8 +131,9 @@ service cloud.firestore {
           && request.resource.data.for.hasAll([request.auth.uid])
           && (request.resource.data.review == null
               || (task(tid).needsReview == false && request.resource.data.review.decision == 'approved'));
-        allow update: if staff() && !(request.auth.uid in resource.data.for);
-        allow delete: if staff() || (resource.data.by == request.auth.uid && resource.data.review == null);
+        allow update: if reviewer() && !(request.auth.uid in resource.data.for);
+        allow delete: if (assigner() && !(request.auth.uid in resource.data.for))
+          || (resource.data.by == request.auth.uid && resource.data.review == null);
       }
     }
 
@@ -88,7 +146,7 @@ service cloud.firestore {
       allow read: if approved();
       allow create: if approved() && request.resource.data.by == request.auth.uid
         && request.resource.data.data is string && request.resource.data.data.size() < 1000000;
-      allow delete: if staff() || resource.data.by == request.auth.uid;
+      allow delete: if assigner() || resource.data.by == request.auth.uid;
       allow update: if false;
     }
 

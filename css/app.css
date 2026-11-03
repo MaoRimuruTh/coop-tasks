@@ -134,6 +134,8 @@ a { color: var(--run); }
 .me-chip:hover { background: var(--surface-2); }
 .me-chip .icon { color: var(--ink-3); }
 .offline-band { background: var(--wait-soft); color: var(--wait-ink); font-size: 14px; padding: 8px var(--gutter-r) 8px var(--gutter); }
+.assigner-band { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  background: var(--wait-soft); color: var(--wait-ink); font-size: 14px; line-height: 1.5; padding: 8px var(--gutter-r) 8px var(--gutter); border-bottom: 1px solid var(--wait); }
 .me-name { font-weight: 600; font-size: 14px; }
 .me-role { font-size: 12px; color: var(--ink-3); display: none; }
 
@@ -164,11 +166,12 @@ a { color: var(--run); }
 @media (min-width: 900px) {
   .weekbox-text { display: flex !important; }
   .me-role { display: inline; }
-  .shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); grid-template-rows: auto 1fr; }
+  .shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); grid-template-rows: auto auto 1fr; }
   .topbar { grid-column: 1 / -1; grid-row: 1; }
-  .main { grid-column: 2; grid-row: 2; }
+  .bands { grid-column: 1 / -1; grid-row: 2; }
+  .main { grid-column: 2; grid-row: 3; }
   .nav {
-    grid-column: 1; grid-row: 2; bottom: auto; left: auto; right: auto;
+    grid-column: 1; grid-row: 3; bottom: auto; left: auto; right: auto;
     position: sticky; top: calc(var(--top-h) + env(safe-area-inset-top, 0px)); align-self: start; height: calc(100vh - var(--top-h));
     flex-direction: column; gap: 2px; border-top: 0; border-right: 1px solid var(--line); padding: 16px 12px; background: var(--surface);
   }
@@ -347,6 +350,7 @@ a { color: var(--run); }
 .avatar--run { --ring: var(--run); } .avatar--wait { --ring: var(--wait); } .avatar--stop { --ring: var(--stop); }
 .avatar--ok { --ring: var(--ok); } .avatar--idle { --ring: var(--idle-ring); }
 .pill { display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border-radius: var(--r-sm); background: var(--surface-2); border: 1px solid var(--line); font-size: 12.5px; color: var(--ink-2); white-space: nowrap; }
+.pill--wait { background: var(--wait-soft); border-color: var(--wait); color: var(--wait-ink); }
 .legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13.5px; color: var(--ink-2); }
 .legend li { display: inline-flex; align-items: center; gap: 6px; }
 .legend .lamp { width: 9px; height: 9px; }

@@ -1,11 +1,13 @@
 // Firebase store: same interface as store-demo.js, backed by Firestore + Google sign-in.
 // Free Spark plan only: photos are shrunk on the phone and stored as Firestore documents
 // (Cloud Storage would need the paid Blaze plan).
-import { stampS, woNumber, displayName, ROLE_TH, shortTitle } from './model.js';
+import { stampS, woNumber, displayName, ROLE_TH, shortTitle, canAssign, canReview, isInternAdmin, normCode, fmtTime } from './model.js';
 
 const SDK = 'https://www.gstatic.com/firebasejs/10.14.1';
-const DEFAULT_SETTINGS = { startDate: '2026-11-02', endDate: '2027-02-19', company: '', university: 'มหาวิทยาลัยทักษิณ' };
-const STAFF = ['admin', 'supervisor'];
+const DEFAULT_SETTINGS = { startDate: '2026-11-02', endDate: '2027-02-19', company: '', university: 'มหาวิทยาลัยทักษิณ',
+  companyAddress: '', companyPhone: '', companyFax: '', companyHours: '',
+  workDays: 'จันทร์–เสาร์', workStart: '08:00', workEnd: '18:00', breakStart: '12:00', breakEnd: '13:00' };
+const UNLOCK_MINUTES = 60;
 const APPROVED = ['admin', 'supervisor', 'student'];
 
 const thaiError = (e) => {
@@ -33,7 +35,7 @@ export async function createFirebaseStore(config) {
     A.connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
     F.connectFirestoreEmulator(fs, '127.0.0.1', 8080);
   }
-  const { doc, collection, collectionGroup, onSnapshot, getDoc, getDocs, setDoc, updateDoc, deleteDoc, writeBatch, runTransaction, query, orderBy, limit, where } = F;
+  const { doc, collection, collectionGroup, onSnapshot, getDoc, getDocs, setDoc, updateDoc, deleteDoc, writeBatch, runTransaction, query, orderBy, limit, where, Timestamp } = F;
 
   const S = { me: null, users: {}, plans: {}, tasks: {}, progress: {}, settings: DEFAULT_SETTINGS, activity: [], online: navigator.onLine, loaded: false };
   const listeners = new Set();
@@ -55,6 +57,9 @@ export async function createFirebaseStore(config) {
   const uid = () => auth.currentUser && auth.currentUser.uid;
   const role = () => (S.me ? S.me.role : 'none');
   const must = (ok, msg) => { if (!ok) throw new Error(msg); };
+  const LOCKED = 'บัญชีนี้ล็อกโหมดผู้มอบงานอยู่ ขอรหัสจากชิเอลแล้วปลดล็อกที่หน้าจัดการระบบ';
+  const mayAssign = () => must(canAssign(S.me), isInternAdmin(S.me) ? LOCKED : 'เฉพาะพี่ผู้ดูแลหรือแอดมินที่สั่งงานได้');
+  const notOwn = (assignees) => must(!(isInternAdmin(S.me) && assignees.includes(uid())), 'งานที่ตัวเองเป็นผู้รับ ให้พี่ผู้ดูแลเป็นคนสั่งหรือแก้');
   const now = () => stampS(new Date());
   const activityRef = () => doc(collection(fs, 'activity'));
   const logIn = (batch, text, taskId = null) => {
@@ -121,7 +126,7 @@ export async function createFirebaseStore(config) {
     }),
 
     createTask: wrap(async (input) => {
-      must(STAFF.includes(role()), 'เฉพาะพี่ผู้ดูแลหรือแอดมินที่สั่งงานได้');
+      mayAssign(); notOwn(input.assignees);
       const ref = doc(collection(fs, 'tasks'));
       await runTransaction(fs, async (tx) => {
         const cRef = doc(fs, 'meta', 'counter');
@@ -135,8 +140,9 @@ export async function createFirebaseStore(config) {
       return ref.id;
     }),
     updateTask: wrap(async (id, patch) => {
-      must(STAFF.includes(role()), 'แก้ไขงานได้เฉพาะพี่ผู้ดูแลหรือแอดมิน');
+      mayAssign();
       const t = S.tasks[id];
+      notOwn(t.assignees); notOwn(patch.assignees || []);
       const b = writeBatch(fs);
       b.update(doc(fs, 'tasks', id), patch);
       if (patch.assignees) {
@@ -147,8 +153,9 @@ export async function createFirebaseStore(config) {
       await b.commit();
     }),
     deleteTask: wrap(async (id) => {
-      must(STAFF.includes(role()), 'ลบงานได้เฉพาะพี่ผู้ดูแลหรือแอดมิน');
+      mayAssign();
       const t = S.tasks[id];
+      notOwn(t.assignees);
       const [subs, files] = await Promise.all([getDocs(collection(fs, 'tasks', id, 'subs')), getDocs(query(collection(fs, 'attachments'), where('taskId', '==', id)))]);
       const b = writeBatch(fs);
       subs.docs.forEach((d) => b.delete(d.ref));
@@ -187,7 +194,7 @@ export async function createFirebaseStore(config) {
       await b.commit();
     }),
     review: wrap(async (subId, decision, note = '') => {
-      must(STAFF.includes(role()), 'ตรวจงานได้เฉพาะพี่ผู้ดูแลหรือแอดมิน');
+      must(canReview(S.me), 'ตรวจงานได้เฉพาะพี่ผู้ดูแล');
       const tid = subIndex[subId];
       const sref = doc(fs, 'tasks', tid, 'subs', subId);
       const sub = (await getDoc(sref)).data();
@@ -202,7 +209,7 @@ export async function createFirebaseStore(config) {
       await b.commit();
     }),
     unreview: wrap(async (subId) => {
-      must(STAFF.includes(role()), 'ยกเลิกผลตรวจได้เฉพาะพี่ผู้ดูแลหรือแอดมิน');
+      must(canReview(S.me), 'ยกเลิกผลตรวจได้เฉพาะพี่ผู้ดูแล');
       const tid = subIndex[subId];
       const sref = doc(fs, 'tasks', tid, 'subs', subId);
       const sub = (await getDoc(sref)).data();
@@ -237,7 +244,7 @@ export async function createFirebaseStore(config) {
     }),
 
     savePlan: wrap(async (plan) => {
-      must(STAFF.includes(role()), 'แก้แผนได้เฉพาะพี่ผู้ดูแลหรือแอดมิน');
+      mayAssign();
       const ref = plan.id ? doc(fs, 'plans', plan.id) : doc(collection(fs, 'plans'));
       const { id: _drop, ...data } = plan;
       const b = writeBatch(fs);
@@ -247,7 +254,7 @@ export async function createFirebaseStore(config) {
       return ref.id;
     }),
     deletePlan: wrap(async (id) => {
-      must(STAFF.includes(role()), 'แก้แผนได้เฉพาะพี่ผู้ดูแลหรือแอดมิน');
+      mayAssign();
       const b = writeBatch(fs);
       b.delete(doc(fs, 'plans', id));
       logIn(b, `ลบงานในแผน: ${(S.plans[id] || {}).title || ''}`);
@@ -255,9 +262,35 @@ export async function createFirebaseStore(config) {
     }),
     updateUser: wrap(async (id, patch) => {
       must(role() === 'admin' || id === uid(), 'แก้ข้อมูลผู้ใช้ได้เฉพาะแอดมิน');
+      const mine = id === uid() && S.me;
+      must(!mine || ((patch.role ?? S.me.role) === S.me.role && (patch.isStudent ?? S.me.isStudent) === S.me.isStudent),
+        'เปลี่ยนบทบาทของตัวเองไม่ได้ ให้คนอื่นที่เป็นแอดมินเปลี่ยนให้');
       const b = writeBatch(fs);
       b.update(doc(fs, 'users', id), patch);
       if (patch.role) logIn(b, `ตั้ง ${displayName(S.users[id])} เป็น${ROLE_TH[patch.role] || patch.role}`);
+      await b.commit();
+    }),
+    // one-time code from Ciel opens assigner mode for an hour; the reason goes into the activity log
+    unlockAssigner: async (code, reason) => {
+      const c = normCode(code);
+      const why = String(reason || '').trim();
+      must(isInternAdmin(S.me), 'โหมดนี้มีไว้สำหรับแอดมินที่เป็นนักศึกษาด้วย');
+      must(c.length === 12, 'รหัสมี 12 ตัว เช่น ABCD-EFGH-JKMN');
+      must(why.length >= 5, 'บอกเหตุผลสั้นๆ ว่าจะเข้าไปทำอะไร');
+      const until = Timestamp.fromMillis(Date.now() + UNLOCK_MINUTES * 60000);
+      const b = writeBatch(fs);
+      b.set(doc(fs, 'unlocks', c), { by: uid(), at: now(), reason: why.slice(0, 300), until });
+      b.update(doc(fs, 'users', uid()), { assignerUntil: until, lastUnlock: c });
+      b.set(activityRef(), { at: now(), by: uid(), text: `เปิดโหมดผู้มอบงานถึง ${fmtTime(until.toDate())} น. · เหตุผล: ${why.slice(0, 120)}`, taskId: null });
+      try { await b.commit(); } catch (e) {
+        if (String(e.code || '').includes('permission-denied')) throw new Error('รหัสไม่ถูก หรือถูกใช้ไปแล้ว ขอรหัสใหม่จากชิเอล');
+        throw thaiError(e);
+      }
+    },
+    lockAssigner: wrap(async () => {
+      const b = writeBatch(fs);
+      b.update(doc(fs, 'users', uid()), { assignerUntil: null });
+      logIn(b, 'ล็อกโหมดผู้มอบงาน');
       await b.commit();
     }),
     updateSettings: wrap(async (patch) => {

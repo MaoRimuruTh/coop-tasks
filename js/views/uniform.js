@@ -7,8 +7,8 @@ import { Icon } from '../ui.js';
 const ROWS = 14;
 
 export function UniForm() {
-  const { db, me, cal, students, store } = useApp();
-  const staff = canAssign(me);
+  const { db, me, now, cal, students, store } = useApp();
+  const staff = canAssign(me, now);
   const [uid, setUid] = useState(staff ? (students[0] || {}).uid : me.uid);
   const student = db.users[uid] || me;
   const rows = formRows(Object.values(db.plans), student.uid);

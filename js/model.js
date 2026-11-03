@@ -97,7 +97,17 @@ export const fmtRange = (a, b) => (a.getMonth() === b.getMonth()
 
 // ---------- people ----------
 export const isStudent = (u) => !!u && (u.role === 'student' || u.isStudent) && u.role !== 'pending';
-export const canAssign = (u) => !!u && (u.role === 'supervisor' || u.role === 'admin');
+// An intern who is also the admin cannot assign work, edit the plan or review anything by default.
+// Assigner mode opens for one hour with a one-time code (checked by firestore.rules) and is logged.
+const millis = (v) => (v == null ? 0 : typeof v === 'number' ? v : typeof v.toMillis === 'function' ? v.toMillis() : Date.parse(v) || 0);
+export const isInternAdmin = (u) => !!u && u.role === 'admin' && !!u.isStudent;
+export const assignerUntil = (u) => { const m = millis(u && u.assignerUntil); return m ? new Date(m) : null; };
+export const assignerOpen = (u, now = new Date()) => { const d = assignerUntil(u); return !!d && d > now; };
+export const canAssign = (u, now = new Date()) => !!u && (u.role === 'supervisor' || (u.role === 'admin' && (!u.isStudent || assignerOpen(u, now))));
+export const canReview = (u) => !!u && (u.role === 'supervisor' || (u.role === 'admin' && !u.isStudent));
+/** Even with assigner mode open, an intern never edits a work order that is assigned to himself. */
+export const canEditTask = (u, task, now = new Date()) => canAssign(u, now) && !(isInternAdmin(u) && task.assignees.includes(u.uid));
+export const normCode = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 export const displayName = (u) => (u ? (u.nickname ? u.nickname : (u.name || '').split(' ')[0]) : '—');
 
 // ---------- tasks ----------

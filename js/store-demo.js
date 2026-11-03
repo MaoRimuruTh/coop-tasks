@@ -1,8 +1,8 @@
 // Demo store: same interface as the Firebase store, but everything lives in this
 // browser (memory + localStorage). Used for the preview before Firebase is set up.
-import { addDays, stamp, stampS, dateKey, displayName, woNumber, ROLE_TH, shortTitle } from './model.js';
+import { addDays, stamp, stampS, dateKey, displayName, woNumber, ROLE_TH, shortTitle, canAssign, canReview, isInternAdmin, normCode, fmtTime } from './model.js';
 
-const KEY = 'coop-demo-v1';
+const KEY = 'coop-demo-v2';
 
 function svgPhoto(label, hue) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480">
@@ -83,7 +83,9 @@ function seed() {
   };
   return {
     v: 1, actor: 'u-ek', counter: 8,
-    settings: { startDate: '2026-11-02', endDate: '2027-02-19', company: 'บริษัท ไทยเซ็นทรัล เมคคานิคส์ จำกัด', university: 'มหาวิทยาลัยทักษิณ' },
+    settings: { startDate: '2026-11-02', endDate: '2027-02-19', company: 'บริษัท ไทยเซ็นทรัล เมคคานิคส์ จำกัด', university: 'มหาวิทยาลัยทักษิณ',
+      companyAddress: '', companyPhone: '', companyFax: '', companyHours: 'จันทร์–ศุกร์ 08:00–17:00, เสาร์ 08:00–17:00',
+      workDays: 'จันทร์–เสาร์', workStart: '08:00', workEnd: '18:00', breakStart: '12:00', breakEnd: '13:00' },
     users, plans, tasks, subs, files,
     activity: [
       { at: at(0, 8, 40), by: 'u-ek', text: 'ให้แก้ WO-006', taskId: 't6' },
@@ -113,7 +115,9 @@ export function createDemoStore() {
     db.activity = [{ at: stampS(new Date()), by: db.actor, text: t ? `${text} “${shortTitle(t.title)}”` : text, taskId }, ...db.activity].slice(0, 300);
   };
   const must = (ok, msg) => { if (!ok) throw new Error(msg); };
-  const staff = () => ['admin', 'supervisor'].includes(me()?.role);
+  const LOCKED = 'บัญชีนี้ล็อกโหมดผู้มอบงานอยู่ ขอรหัสจากชิเอลแล้วปลดล็อกที่หน้าจัดการระบบ';
+  const mayAssign = () => must(canAssign(me()), isInternAdmin(me()) ? LOCKED : 'เฉพาะพี่ผู้ดูแลหรือแอดมินที่สั่งงานได้');
+  const notOwn = (assignees) => must(!(isInternAdmin(me()) && assignees.includes(db.actor)), 'งานที่ตัวเองเป็นผู้รับ ให้พี่ผู้ดูแลเป็นคนสั่งหรือแก้');
 
   return {
     mode: 'demo',
@@ -126,7 +130,7 @@ export function createDemoStore() {
     reset() { db = seed(); emit(); },
 
     async createTask(input) {
-      must(staff(), 'เฉพาะพี่ผู้ดูแลหรือแอดมินที่สั่งงานได้');
+      mayAssign(); notOwn(input.assignees);
       const id = uid('t');
       db.counter += 1;
       const state = Object.fromEntries(input.assignees.map((a) => [a, { s: 'assigned', at: stamp(new Date()) }]));
@@ -136,8 +140,9 @@ export function createDemoStore() {
       return id;
     },
     async updateTask(id, patch) {
-      must(staff(), 'แก้ไขงานได้เฉพาะพี่ผู้ดูแลหรือแอดมิน');
+      mayAssign();
       const t = db.tasks[id];
+      notOwn(t.assignees); notOwn(patch.assignees || []);
       const assignees = patch.assignees || t.assignees;
       const state = Object.fromEntries(assignees.map((a) => [a, t.state[a] || { s: 'assigned', at: stamp(new Date()) }]));
       db.tasks = { ...db.tasks, [id]: { ...t, ...patch, state } };
@@ -145,8 +150,9 @@ export function createDemoStore() {
       emit();
     },
     async deleteTask(id) {
-      must(staff(), 'ลบงานได้เฉพาะพี่ผู้ดูแลหรือแอดมิน');
+      mayAssign();
       const t = db.tasks[id];
+      notOwn(t.assignees);
       const { [id]: _gone, ...rest } = db.tasks;
       db.tasks = rest;
       db.subs = Object.fromEntries(Object.entries(db.subs).filter(([, s]) => s.taskId !== id));
@@ -180,7 +186,7 @@ export function createDemoStore() {
       emit();
     },
     async review(subId, decision, note = '') {
-      must(staff(), 'ตรวจงานได้เฉพาะพี่ผู้ดูแลหรือแอดมิน');
+      must(canReview(me()), 'ตรวจงานได้เฉพาะพี่ผู้ดูแล');
       const sub = db.subs[subId];
       must(!sub.for.includes(db.actor), 'ตรวจงานของตัวเองไม่ได้ ให้พี่ผู้ดูแลเป็นคนตรวจ');
       const t = db.tasks[sub.taskId];
@@ -205,7 +211,7 @@ export function createDemoStore() {
       emit();
     },
     async unreview(subId) {
-      must(staff(), 'ยกเลิกผลตรวจได้เฉพาะพี่ผู้ดูแลหรือแอดมิน');
+      must(canReview(me()), 'ยกเลิกผลตรวจได้เฉพาะพี่ผู้ดูแล');
       const sub = db.subs[subId];
       const t = db.tasks[sub.taskId];
       db.subs = { ...db.subs, [subId]: { ...sub, review: null } };
@@ -219,7 +225,7 @@ export function createDemoStore() {
     async file(id) { return db.files[id] || null; },
 
     async savePlan(plan) {
-      must(staff(), 'แก้แผนได้เฉพาะพี่ผู้ดูแลหรือแอดมิน');
+      mayAssign();
       const id = plan.id || uid('p');
       db.plans = { ...db.plans, [id]: { ...plan, id } };
       log(`${plan.id ? 'แก้แผน' : 'เพิ่มงานในแผน'}: ${plan.title}`, null);
@@ -227,7 +233,7 @@ export function createDemoStore() {
       return id;
     },
     async deletePlan(id) {
-      must(staff(), 'แก้แผนได้เฉพาะพี่ผู้ดูแลหรือแอดมิน');
+      mayAssign();
       const { [id]: gone, ...rest } = db.plans;
       db.plans = rest;
       log(`ลบงานในแผน: ${gone.title}`, null);
@@ -235,8 +241,27 @@ export function createDemoStore() {
     },
     async updateUser(id, patch) {
       must(me()?.role === 'admin' || id === db.actor, 'แก้ข้อมูลผู้ใช้ได้เฉพาะแอดมิน');
+      const self = id === db.actor && me();
+      must(!self || ((patch.role ?? self.role) === self.role && (patch.isStudent ?? self.isStudent) === self.isStudent),
+        'เปลี่ยนบทบาทของตัวเองไม่ได้ ให้คนอื่นที่เป็นแอดมินเปลี่ยนให้');
       db.users = { ...db.users, [id]: { ...db.users[id], ...patch } };
       if (patch.role) log(`ตั้ง ${displayName(db.users[id])} เป็น${ROLE_TH[patch.role] || patch.role}`, null);
+      emit();
+    },
+    // the demo accepts any 12-character code; the real site checks one-time codes in firestore.rules
+    async unlockAssigner(code, reason) {
+      const why = String(reason || '').trim();
+      must(isInternAdmin(me()), 'โหมดนี้มีไว้สำหรับแอดมินที่เป็นนักศึกษาด้วย');
+      must(normCode(code).length === 12, 'รหัสมี 12 ตัว เช่น ABCD-EFGH-JKMN');
+      must(why.length >= 5, 'บอกเหตุผลสั้นๆ ว่าจะเข้าไปทำอะไร');
+      const until = Date.now() + 60 * 60000;
+      db.users = { ...db.users, [db.actor]: { ...me(), assignerUntil: until } };
+      log(`เปิดโหมดผู้มอบงานถึง ${fmtTime(new Date(until))} น. · เหตุผล: ${why.slice(0, 120)}`, null);
+      emit();
+    },
+    async lockAssigner() {
+      db.users = { ...db.users, [db.actor]: { ...me(), assignerUntil: null } };
+      log('ล็อกโหมดผู้มอบงาน', null);
       emit();
     },
     async updateSettings(patch) {

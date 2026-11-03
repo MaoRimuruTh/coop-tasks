@@ -1,6 +1,6 @@
 // App shell: data subscription, hash routing, navigation, demo persona switcher, toasts.
 import { html, render, useEffect, useMemo, useState, useCallback, useRef } from './vendor/preact-htm.js';
-import { calendar, weekOf, displayName, isStudent, canAssign, fmtDay, fmtRange, TH_DAYS, stateOf, isLate } from './model.js';
+import { calendar, weekOf, displayName, isStudent, canAssign, canReview, isInternAdmin, assignerOpen, assignerUntil, fmtDay, fmtTime, fmtRange, TH_DAYS, stateOf, isLate } from './model.js';
 import { Icon } from './ui.js';
 import { Ctx } from './ctx.js';
 import { MyTasks } from './views/my.js';
@@ -17,10 +17,10 @@ import { ProfileSheet } from './views/profile.js';
 const ROLE_LABEL = { admin: 'แอดมิน', supervisor: 'พนักงานผู้ดูแล', student: 'นักศึกษา', pending: 'รออนุมัติ' };
 export const roleLabel = (u) => (u.role === 'admin' && u.isStudent ? 'แอดมิน · นักศึกษา' : ROLE_LABEL[u.role] || u.role);
 
-function tabsFor(me, badges) {
+function tabsFor(me, badges, now) {
   const t = [];
   if (isStudent(me)) t.push({ id: 'my', label: 'งานของฉัน', icon: 'inbox', badge: badges.mine });
-  if (canAssign(me)) t.push({ id: 'board', label: 'ภาพรวม', icon: 'board', badge: badges.review }, { id: 'tasks', label: 'งานทั้งหมด', icon: 'list' });
+  if (canAssign(me, now)) t.push({ id: 'board', label: 'ภาพรวม', icon: 'board', badge: badges.review }, { id: 'tasks', label: 'งานทั้งหมด', icon: 'list' });
   t.push({ id: 'plan', label: 'แผน 16 สัปดาห์', short: 'แผน', icon: 'plan' });
   // used a few times in the whole internship: on phones it is a button on the plan page
   t.push({ id: 'form', label: 'ฟอร์มส่งมหาลัย', short: 'ฟอร์ม', icon: 'form', deskOnly: true });
@@ -95,9 +95,11 @@ function App({ store }) {
       const s = stateOf(t, me.uid);
       if (s === 'assigned' || s === 'changes' || isLate(t, me.uid, now)) badges.mine += 1;
     }
-    if (canAssign(me)) badges.review += t.assignees.filter((u) => u !== me.uid && stateOf(t, u) === 'submitted').length;
+    if (canReview(me)) badges.review += t.assignees.filter((u) => u !== me.uid && stateOf(t, u) === 'submitted').length;
   }
-  const tabs = tabsFor(me, badges);
+  const tabs = tabsFor(me, badges, now);
+  const assignerOn = isInternAdmin(me) && assignerOpen(me, now);
+  const lockNow = async () => { try { await store.lockAssigner(); toast('ล็อกโหมดผู้มอบงานแล้ว'); } catch (ex) { toast(ex.message, 'bad'); } };
   const woMatch = /^wo-(\d+)$/.exec(route);
   let tab = woMatch ? (lastTab.current || tabs[0].id) : route;
   if (!tabs.some((t) => t.id === tab)) tab = tabs[0].id;
@@ -129,7 +131,11 @@ function App({ store }) {
           <span class="me-name">${displayName(me)}</span><span class="me-role">${roleLabel(me)}</span><${Icon} name="user" size=${18} />
         </button>
       </header>
-      ${db.online === false ? html`<p class="offline-band" role="status">ออฟไลน์อยู่ งานที่กดไว้จะส่งให้อัตโนมัติเมื่อกลับมาออนไลน์</p>` : ''}
+      <div class="bands">
+        ${db.online === false ? html`<p class="offline-band" role="status">ออฟไลน์อยู่ งานที่กดไว้จะส่งให้อัตโนมัติเมื่อกลับมาออนไลน์</p>` : ''}
+        ${assignerOn ? html`<p class="assigner-band" role="status"><span><b>โหมดผู้มอบงานเปิดอยู่</b> ถึง ${fmtTime(assignerUntil(me))} น. ทุกอย่างที่ทำถูกบันทึกให้พี่ผู้ดูแลเห็น</span>
+          <button type="button" class="btn btn--sm btn--ghost" onClick=${lockNow}>ล็อกเลย</button></p>` : ''}
+      </div>
 
       <nav class="nav" aria-label="เมนูหลัก">
         ${tabs.map((t) => html`<a href=${`#${t.id}`} class=${`nav-item${t.id === tab ? ' is-on' : ''}${t.deskOnly ? ' nav-item--desk' : ''}`} aria-current=${t.id === tab ? 'page' : undefined}>
@@ -141,7 +147,7 @@ function App({ store }) {
         <${View} key=${tab + (me && me.uid)} />
       </main>
 
-      ${canAssign(me) && (tab === 'board' || tab === 'tasks') ? html`<button type="button" class="fab" onClick=${() => setFormTask({})}>
+      ${canAssign(me, now) && (tab === 'board' || tab === 'tasks') ? html`<button type="button" class="fab" onClick=${() => setFormTask({})}>
         <${Icon} name="plus" size=${22} /><span>สั่งงาน</span></button>` : ''}
     </div>
     ${detailTask ? html`<${TaskDetail} task=${detailTask} onClose=${closeTask} />` : ''}

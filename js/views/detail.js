@@ -1,7 +1,7 @@
 // Work order detail: the one action that matters for the viewer sits in the sticky footer.
 import { html, useState, useEffect, useRef } from '../vendor/preact-htm.js';
 import { useApp } from '../ctx.js';
-import { stateOf, isLate, woNumber, displayName, toLocalDate, fmtDate, fmtTime, fmtDay, canAssign, weeksLabel } from '../model.js';
+import { stateOf, isLate, woNumber, displayName, toLocalDate, fmtDate, fmtTime, fmtDay, canEditTask, canReview as canReviewAny, weeksLabel } from '../model.js';
 import { Sheet, Icon, StateTag, DueChip, PrioLabel, Lamp, Field } from '../ui.js';
 import { compressImage } from '../image.js';
 import { planTitle } from './rows.js';
@@ -109,14 +109,15 @@ export function TaskDetail({ task, onClose }) {
   const sendRef = useRef(null);
   useEffect(() => { let on = true; store.subsFor(task.id).then((s) => on && setSubs(s)); return () => { on = false; }; }, [db]);
   const files = useFiles(store, (subs || []).flatMap((s) => s.files || []));
-  const staff = canAssign(me);
+  const reviewer = canReviewAny(me); // interns never review, even an admin who is also an intern
+  const editable = canEditTask(me, task, now);
   const mine = task.assignees.includes(me.uid) ? stateOf(task, me.uid) : null;
   const myNote = mine && task.state[me.uid] && task.state[me.uid].note;
   const plan = db.plans[task.planId];
   const due = toLocalDate(task.due);
   const created = toLocalDate(task.created);
-  // nobody reviews their own work, even an admin who is also an intern
-  const canReview = (s) => staff && !s.review && !s.for.includes(me.uid);
+  // nobody reviews their own work
+  const canReview = (s) => reviewer && !s.review && !s.for.includes(me.uid);
   const pending = (subs || []).filter(canReview);
   const roundOf = (s) => (subs || []).filter((x) => x.for.join() === s.for.join() && x.at <= s.at).length;
 
@@ -134,7 +135,7 @@ export function TaskDetail({ task, onClose }) {
 
   // the single primary action for this viewer
   let footer = null;
-  if (staff && pending.length && !changesFor) {
+  if (reviewer && pending.length && !changesFor) {
     const s = pending[pending.length - 1]; // the oldest waiting submission first
     const who = s.for.map((u) => displayName(db.users[u])).join(', ');
     footer = html`<button type="button" class="btn btn--stop-ghost" disabled=${busy} onClick=${() => openChanges(s)}>ให้แก้</button>
@@ -148,7 +149,7 @@ export function TaskDetail({ task, onClose }) {
       <${Icon} name="send" size=${18} />${busy ? 'กำลังส่ง…' : label}</button>`;
   }
 
-  const head = staff ? html`<button type="button" class="icon-btn" onClick=${() => { onClose(); editTask(task); }} aria-label="แก้ไขใบสั่งงาน"><${Icon} name="edit" /></button>` : null;
+  const head = editable ? html`<button type="button" class="icon-btn" onClick=${() => { onClose(); editTask(task); }} aria-label="แก้ไขใบสั่งงาน"><${Icon} name="edit" /></button>` : null;
 
   return html`<${Sheet} title=${woNumber(task)} onClose=${onClose} wide footer=${footer} headActions=${head}>
     <article class="ticket">
@@ -190,7 +191,7 @@ export function TaskDetail({ task, onClose }) {
           ${s.review ? html`<p class=${`sub-review sub-review--${s.review.decision}`}>
               <b>${s.review.decision === 'approved' ? 'ผ่าน' : 'ให้แก้'}</b> โดย ${displayName(db.users[s.review.by])} · <span class="num">${when(s.review.at)}</span>
               ${s.review.note ? html`<br />${s.review.note}` : ''}</p>
-              ${staff && i === 0 && s.review.by === me.uid ? html`<button type="button" class="link-btn" onClick=${() => run(() => store.unreview(s.id), 'ยกเลิกผลตรวจแล้ว ตรวจใหม่ได้เลย', 'info')}>กดผิด? ยกเลิกผลตรวจนี้</button>` : ''}`
+              ${reviewer && i === 0 && s.review.by === me.uid ? html`<button type="button" class="link-btn" onClick=${() => run(() => store.unreview(s.id), 'ยกเลิกผลตรวจแล้ว ตรวจใหม่ได้เลย', 'info')}>กดผิด? ยกเลิกผลตรวจนี้</button>` : ''}`
             : changesFor === s.id ? html`<${ChangesBox} sub=${s} onDone=${() => setChangesFor(null)} onCancel=${() => setChangesFor(null)} />`
             : canReview(s) ? html`<div class="btn-row"><button type="button" class="btn btn--stop-ghost" onClick=${() => openChanges(s)}>ให้แก้</button>
                 <button type="button" class="btn btn--ok" onClick=${() => approve(s)}><${Icon} name="check" size=${18} />ตรวจผ่าน</button></div>`
