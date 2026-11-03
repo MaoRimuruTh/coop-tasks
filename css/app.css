@@ -495,6 +495,7 @@ a { color: var(--run); }
 .sub-review--changes { background: var(--stop-soft); color: var(--stop-ink); }
 .review-box { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
 .link-btn { align-self: flex-start; min-height: 44px; border: 0; background: transparent; padding: 0; color: var(--ink-2); font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
+.link-btn--inline { min-height: 0; margin-left: 6px; font-size: 14px; }
 .ticket-actions { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
 .lightbox { position: fixed; inset: 0; z-index: 50; background: rgb(0 0 0 / 88%); display: grid; place-items: center; padding: 24px; }
 .lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; }
@@ -720,6 +721,13 @@ button.g-title:hover { text-decoration: underline; text-underline-offset: 3px; }
 .user-main small { display: block; color: var(--ink-3); font-size: 12.5px; overflow-wrap: anywhere; }
 .user-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .export-box { font: 12px/1.5 var(--f-mono); margin-top: 8px; }
+.invite-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.invite { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); }
+.invite-head b { display: block; }
+.invite-head small { color: var(--ink-3); font-size: 13px; }
+.invite-url { width: 100%; min-height: 44px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface-2); color: var(--ink); font: 13px var(--f-mono); }
+.invite-warn { font-size: 13px; color: var(--wait-ink); background: var(--wait-soft); padding: 6px 10px; border-radius: var(--r-sm); }
+.invite .btn-row { flex-wrap: wrap; }
 
 /* ---------- gate (sign-in) ---------- */
 .gate { min-height: 100vh; display: grid; place-items: center; padding: 24px var(--gutter-r) 24px var(--gutter); }

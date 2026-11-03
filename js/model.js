@@ -108,7 +108,8 @@ export const canReview = (u) => !!u && (u.role === 'supervisor' || (u.role === '
 /** Even with assigner mode open, an intern never edits a work order that is assigned to himself. */
 export const canEditTask = (u, task, now = new Date()) => canAssign(u, now) && !(isInternAdmin(u) && task.assignees.includes(u.uid));
 export const normCode = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-export const displayName = (u) => (u ? (u.nickname ? u.nickname : (u.name || '').split(' ')[0]) : '—');
+// nickname first; otherwise the first name without the title (นาย / นางสาว / นาง / น.ส.)
+export const displayName = (u) => (u ? (u.nickname ? u.nickname : (u.name || '').trim().replace(/^(นางสาว|นาย|นาง|น\.ส\.)\s*/, '').split(/\s+/)[0]) : '—');
 
 // ---------- tasks ----------
 export const stateOf = (task, uid) => (task.state && task.state[uid] && task.state[uid].s) || 'assigned';

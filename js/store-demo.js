@@ -85,7 +85,7 @@ function seed() {
     f4: { id: 'f4', name: 'qc-table.jpg', type: 'image/svg+xml', data: svgPhoto('รูปตัวอย่าง · ตารางค่าการวัด', 260) },
   };
   return {
-    v: 1, actor: 'u-ek', counter: 8,
+    v: 1, actor: 'u-ek', counter: 8, join: { supervisor: 'DEMOSTAF', student: 'DEMOSTUD' },
     settings: { startDate: '2026-11-02', endDate: '2027-02-19', company: 'บริษัท ไทยเซ็นทรัล เมคคานิคส์ จำกัด', university: 'มหาวิทยาลัยทักษิณ',
       companyAddress: '', companyPhone: '', companyFax: '', companyHours: 'จันทร์–ศุกร์ 08:00–17:00, เสาร์ 08:00–17:00',
       workDays: 'จันทร์–เสาร์', workStart: '08:00', workEnd: '18:00', breakStart: '12:00', breakEnd: '13:00' },
@@ -129,6 +129,12 @@ export function createDemoStore() {
     snapshot() { return { ...db, me: me(), persistOk }; },
 
     // demo-only helpers
+    async rotateJoinCode(which) {
+      must(me()?.role === 'admin', 'เปลี่ยนลิงก์ชวนได้เฉพาะแอดมิน');
+      const a = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+      db.join = { ...(db.join || {}), [which]: Array.from({ length: 8 }, () => a[Math.floor(Math.random() * a.length)]).join('') };
+      emit();
+    },
     setActor(id) { db.actor = id; emit(); },
     reset() { db = seed(); emit(); },
 

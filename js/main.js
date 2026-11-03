@@ -2,8 +2,10 @@
 import { mount } from './app.js';
 import { createDemoStore } from './store-demo.js';
 import { FIREBASE_CONFIG } from './config.js';
+import { rememberJoin } from './views/signin.js';
 
 async function boot() {
+  rememberJoin(); // invite link ?join=… must outlive the Google sign-in
   const el = document.getElementById('app');
   let store;
   if (FIREBASE_CONFIG && !/[?&]demo\b/.test(location.search)) {

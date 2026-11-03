@@ -79,6 +79,39 @@ function AssignerLock() {
   </section>`;
 }
 
+/** Invite links: open, sign in with Google, fill a short form, in. Nobody waits for the admin. */
+function InviteLinks() {
+  const { db, store, toast } = useApp();
+  const j = db.join;
+  const base = `${location.origin}${location.pathname}`;
+  const link = (role) => `${base}?join=${j[role]}&as=${role === 'supervisor' ? 'staff' : 'student'}`;
+  const text = (role) => (role === 'supervisor'
+    ? `ลิงก์เข้าระบบใบสั่งงานฝึกงาน สำหรับพี่ผู้ดูแล\nเปิดลิงก์ ล็อกอินด้วย Google แล้วกรอกตำแหน่ง ใช้ได้ทันที\n${link(role)}`
+    : `ลิงก์เข้าระบบใบสั่งงานฝึกงาน สำหรับนักศึกษาฝึกงาน\nเปิดลิงก์ ล็อกอินด้วย Google แล้วกรอกเลขประจำตัวนิสิต สาขา คณะ ใช้ได้ทันที\n${link(role)}`);
+  const copy = async (role) => {
+    try { await navigator.clipboard.writeText(text(role)); toast('คัดลอกข้อความพร้อมลิงก์แล้ว', 'ok'); } catch { toast('คัดลอกอัตโนมัติไม่ได้ แตะที่ลิงก์แล้วคัดลอกเอง'); }
+  };
+  const rotate = async (role) => { try { await store.rotateJoinCode(role); toast('เปลี่ยนลิงก์แล้ว ลิงก์เก่าใช้ไม่ได้'); } catch (ex) { toast(ex.message, 'bad'); } };
+  const kinds = [
+    { role: 'supervisor', title: 'พี่ผู้ดูแล (พนักงาน)', need: 'กรอกตำแหน่ง', warn: 'ส่งให้พนักงานเท่านั้น ใครเข้าด้วยลิงก์นี้จะตรวจงานได้' },
+    { role: 'student', title: 'นักศึกษาฝึกงาน', need: 'กรอกเลขประจำตัวนิสิต สาขา คณะ', warn: '' },
+  ];
+  return html`<section class="panel">
+    <div class="section-head"><h2>ลิงก์ชวนเข้าทีม</h2></div>
+    <p class="quiet">ส่งลิงก์ให้แต่ละกลุ่ม คนที่ได้รับเปิดลิงก์ ล็อกอินด้วย Google แล้วกรอกข้อมูลสั้นๆ ก็ใช้ได้ทันที ไม่ต้องรอแอดมินอนุมัติ</p>
+    ${!j ? html`<p class="quiet">กำลังสร้างลิงก์…</p>` : html`<ul class="invite-list">${kinds.map((x) => html`<li class="invite" key=${x.role}>
+      <div class="invite-head"><b>${x.title}</b><small>${x.need}</small></div>
+      <input class="invite-url" type="text" readonly value=${link(x.role)} onFocus=${(e) => e.target.select()} aria-label=${`ลิงก์สำหรับ${x.title}`} />
+      ${x.warn ? html`<p class="invite-warn">${x.warn}</p>` : ''}
+      <div class="btn-row">
+        <button type="button" class="btn btn--primary btn--sm" onClick=${() => copy(x.role)}><${Icon} name="copy" size=${16} />คัดลอก</button>
+        <a class="btn btn--ghost btn--sm" href=${`https://line.me/R/share?text=${encodeURIComponent(text(x.role))}`} target="_blank" rel="noopener">ส่งทาง LINE</a>
+        <${ConfirmButton} label="เปลี่ยนลิงก์" confirmLabel="กดอีกครั้ง ลิงก์เก่าจะใช้ไม่ได้" icon="refresh" onConfirm=${() => rotate(x.role)} />
+      </div>
+    </li>`)}</ul>`}
+  </section>`;
+}
+
 export function AdminView() {
   const { db, me, store, toast } = useApp();
   const st = db.settings;
@@ -120,8 +153,11 @@ export function AdminView() {
     <header class="page-head"><h1>จัดการระบบ</h1></header>
     ${!st.company ? html`<p class="callout callout--wait">ยังไม่ได้กรอกชื่อสถานประกอบการ กรอกที่ “สถานประกอบการ” ด้านล่าง ชื่อนี้ใช้ลงฟอร์มส่งมหาลัย</p>` : ''}
 
+    <${InviteLinks} />
+
     <section class="panel">
-      <div class="section-head"><h2>คนที่ขอเข้าระบบ <span class="count">${pending.length}</span></h2></div>
+      <div class="section-head"><h2>ล็อกอินแล้วแต่ยังไม่ลงทะเบียน <span class="count">${pending.length}</span></h2></div>
+      ${pending.length ? html`<p class="quiet">ปกติไม่ต้องทำอะไร ถ้าคนนั้นไม่มีลิงก์ชวน กดเลือกบทบาทให้ได้ตรงนี้</p>` : ''}
       ${pending.length ? html`<ul class="user-list">${pending.map((u) => html`<li class="user-row" key=${u.uid}>
           <${Avatar} user=${u} /><span class="user-main"><b>${u.name}</b><small>${u.email || 'ไม่มีอีเมล'}</small></span>
           <span class="user-actions">
@@ -129,7 +165,7 @@ export function AdminView() {
             <button type="button" class="btn btn--ghost btn--sm" onClick=${() => approve(u, 'supervisor')}>พนักงานผู้ดูแล</button>
             <button type="button" class="btn btn--primary btn--sm" onClick=${() => approve(u, 'student')}>นักศึกษา</button>
           </span></li>`)}</ul>`
-        : html`<p class="quiet">ไม่มีคนรออนุมัติ คนใหม่ที่ล็อกอินด้วย Google จะขึ้นที่นี่</p>`}
+        : html`<p class="quiet">ไม่มีค้าง คนที่ล็อกอินแต่ยังไม่ได้กรอกข้อมูลจะขึ้นที่นี่</p>`}
     </section>
 
     ${isInternAdmin(me) ? html`<${AssignerLock} />` : ''}

@@ -69,7 +69,18 @@ service cloud.firestore {
             && !exists(/databases/$(database)/documents/unlocks/$(request.resource.data.lastUnlock))
             && existsAfter(/databases/$(database)/documents/unlocks/$(request.resource.data.lastUnlock)))
         // locking again early is always allowed
-        || (signedIn() && request.auth.uid == uid && onlyChanged(['assignerUntil']) && request.resource.data.assignerUntil == null);
+        || (signedIn() && request.auth.uid == uid && onlyChanged(['assignerUntil']) && request.resource.data.assignerUntil == null)
+        // self-registration with the team invite code (joins/{uid} in the same batch): staff fill a position, interns a student ID
+        || (signedIn() && request.auth.uid == uid && resource.data.role == 'pending'
+            && request.resource.data.role in ['student', 'supervisor']
+            && request.resource.data.isStudent == (request.resource.data.role == 'student')
+            && onlyChanged(['role', 'isStudent', 'name', 'nickname', 'position', 'studentId', 'major', 'faculty'])
+            && request.resource.data.name is string && request.resource.data.name.size() > 0
+            && (request.resource.data.role == 'student'
+                ? request.resource.data.get('studentId', '') is string && request.resource.data.get('studentId', '').size() > 0
+                : request.resource.data.get('position', '') is string && request.resource.data.get('position', '').size() > 0)
+            && !exists(/databases/$(database)/documents/joins/$(uid))
+            && getAfter(/databases/$(database)/documents/joins/$(uid)).data.role == request.resource.data.role);
       allow delete: if admin() && uid != request.auth.uid;
     }
 
@@ -82,6 +93,22 @@ service cloud.firestore {
         && request.resource.data.by == request.auth.uid
         && request.resource.data.reason is string && request.resource.data.reason.size() >= 5 && request.resource.data.reason.size() <= 300
         && request.resource.data.until == getAfter(userPath(request.auth.uid)).data.assignerUntil;
+      allow update, delete: if false;
+    }
+
+    // invite codes for the two invite links (one for staff, one for interns); only the admin sees them
+    match /meta/join {
+      allow read, write: if admin();
+    }
+    // the code someone joined with; checked against meta/join and never readable
+    match /joins/{uid} {
+      allow read: if false;
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['role', 'code', 'at'])
+        && request.resource.data.role in ['student', 'supervisor']
+        && request.resource.data.code is string
+        && exists(/databases/$(database)/documents/meta/join)
+        && request.resource.data.code == get(/databases/$(database)/documents/meta/join).data.get(request.resource.data.role, '#none#');
       allow update, delete: if false;
     }
 
@@ -152,7 +179,9 @@ service cloud.firestore {
 
     match /activity/{id} {
       allow read: if approved();
-      allow create: if approved() && request.resource.data.by == request.auth.uid;
+      // also the entry written in the same batch as one's own registration
+      allow create: if request.resource.data.by == request.auth.uid
+        && (approved() || getAfter(userPath(request.auth.uid)).data.role in ['admin', 'supervisor', 'student']);
       allow update, delete: if false;
     }
   }

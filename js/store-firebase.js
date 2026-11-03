@@ -8,6 +8,8 @@ const DEFAULT_SETTINGS = { startDate: '2026-11-02', endDate: '2027-02-19', compa
   companyAddress: '', companyPhone: '', companyFax: '', companyHours: '',
   workDays: 'จันทร์–เสาร์', workStart: '08:00', workEnd: '18:00', breakStart: '12:00', breakEnd: '13:00' };
 const UNLOCK_MINUTES = 60;
+const JOIN_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const newJoinCode = () => Array.from(crypto.getRandomValues(new Uint32Array(8)), (n) => JOIN_ALPHABET[n % JOIN_ALPHABET.length]).join('');
 const APPROVED = ['admin', 'supervisor', 'student'];
 
 const thaiError = (e) => {
@@ -37,7 +39,7 @@ export async function createFirebaseStore(config) {
   }
   const { doc, collection, collectionGroup, onSnapshot, getDoc, getDocs, setDoc, updateDoc, deleteDoc, writeBatch, runTransaction, query, orderBy, limit, where, Timestamp } = F;
 
-  const S = { me: null, users: {}, plans: {}, tasks: {}, progress: {}, settings: DEFAULT_SETTINGS, activity: [], online: navigator.onLine, loaded: false };
+  const S = { me: null, users: {}, plans: {}, tasks: {}, progress: {}, settings: DEFAULT_SETTINGS, activity: [], join: null, online: navigator.onLine, loaded: false };
   const listeners = new Set();
   const subIndex = {}; // subId -> taskId (filled by subsFor)
   const fileCache = {};
@@ -50,7 +52,7 @@ export async function createFirebaseStore(config) {
   function build() {
     const tasks = {};
     for (const [id, t] of Object.entries(S.tasks)) tasks[id] = { ...t, state: S.progress[id] || {} };
-    return { settings: { ...DEFAULT_SETTINGS, ...S.settings }, users: S.users, plans: S.plans, tasks, activity: S.activity,
+    return { settings: { ...DEFAULT_SETTINGS, ...S.settings }, users: S.users, plans: S.plans, tasks, activity: S.activity, join: S.join,
       me: S.me, actor: S.me && S.me.uid, online: S.online, loaded: S.loaded, persistOk: true };
   }
   const emit = () => { snap = build(); listeners.forEach((fn) => fn()); };
@@ -92,6 +94,13 @@ export async function createFirebaseStore(config) {
     });
     listen(doc(fs, 'settings', 'app'), (d) => { S.settings = d.exists() ? d.data() : {}; emit(); });
     listen(query(collection(fs, 'activity'), orderBy('at', 'desc'), limit(60)), (qs) => { S.activity = qs.docs.map((d) => d.data()); emit(); });
+    if (S.me && S.me.role === 'admin') {
+      // invite codes for the two invite links; made the first time the admin opens the app
+      listen(doc(fs, 'meta', 'join'), (d) => {
+        if (!d.exists()) { setDoc(doc(fs, 'meta', 'join'), { supervisor: newJoinCode(), student: newJoinCode() }).catch(() => {}); return; }
+        S.join = d.data(); emit();
+      });
+    }
   }
 
   const store = {
@@ -115,6 +124,35 @@ export async function createFirebaseStore(config) {
     _test: config.useEmulator ? { fs, F, auth } : undefined,
     _signInForTest: config.useEmulator ? (email, name) => A.signInWithCredential(auth,
       A.GoogleAuthProvider.credential(JSON.stringify({ sub: email, email, email_verified: true, name }))) : undefined,
+
+    // a new person joins with the invite code from the link: staff fill a position, interns a student ID
+    register: async ({ role, code, name, nickname = '', position = '', studentId = '', major = '', faculty = '' }) => {
+      const c = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      must(role === 'student' || role === 'supervisor', 'เลือกก่อนว่าเป็นพี่ผู้ดูแลหรือนักศึกษา');
+      must(String(name).trim(), 'ใส่ชื่อ–นามสกุล');
+      if (role === 'supervisor') must(String(position).trim(), 'ใส่ตำแหน่ง (ใช้ลงฟอร์มส่งมหาลัย)');
+      else {
+        must(String(studentId).trim(), 'ใส่เลขประจำตัวนิสิต');
+        must(String(major).trim() && String(faculty).trim(), 'ใส่สาขาวิชาและคณะ (ใช้ลงฟอร์มส่งมหาลัย)');
+      }
+      must(c, 'ใส่รหัสเข้าทีม หรือเปิดจากลิงก์ที่แอดมินส่งให้');
+      const patch = role === 'student'
+        ? { role, isStudent: true, name: name.trim(), nickname: nickname.trim(), studentId: studentId.trim(), major: major.trim(), faculty: faculty.trim() }
+        : { role, isStudent: false, name: name.trim(), nickname: nickname.trim(), position: position.trim() };
+      const b = writeBatch(fs);
+      b.set(doc(fs, 'joins', uid()), { role, code: c, at: now() });
+      b.update(doc(fs, 'users', uid()), patch);
+      b.set(activityRef(), { at: now(), by: uid(), taskId: null,
+        text: role === 'student' ? `ลงทะเบียนเป็นนักศึกษา (${patch.studentId})` : `ลงทะเบียนเป็นพนักงานผู้ดูแล (${patch.position})` });
+      try { await b.commit(); } catch (e) {
+        if (String(e.code || '').includes('permission-denied')) throw new Error('รหัสเข้าทีมไม่ถูก หรือไม่ตรงกับบทบาทที่เลือก ขอลิงก์ใหม่จากแอดมิน');
+        throw thaiError(e);
+      }
+    },
+    rotateJoinCode: wrap(async (which) => {
+      must(role() === 'admin', 'เปลี่ยนลิงก์ชวนได้เฉพาะแอดมิน');
+      await setDoc(doc(fs, 'meta', 'join'), { [which]: newJoinCode() }, { merge: true });
+    }),
 
     claimAdmin: wrap(async () => {
       const b = writeBatch(fs);
