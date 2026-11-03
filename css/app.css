@@ -599,6 +599,7 @@ button.g-title:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 /* ---------- month page: tick table + daily log ---------- */
 .month { display: flex; flex-direction: column; gap: 20px; }
+.month .form-tools > .btn { align-self: flex-start; }
 .month-head h2 { font-size: 22px; }
 .month-head h2 small { font-size: 15px; font-weight: 500; color: var(--ink-3); margin-left: 6px; }
 .month-head p { font-size: 14px; color: var(--ink-2); }
