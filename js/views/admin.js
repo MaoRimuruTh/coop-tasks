@@ -141,7 +141,7 @@ export function AdminView() {
     try { await store.updateUser(u.uid, { role, isStudent: role === 'student' }); toast(`อนุมัติ ${displayName(u)} เป็น${roleName(role)}แล้ว`, 'ok'); } catch (ex) { toast(ex.message, 'bad'); }
   };
   const reject = async (u) => {
-    try { await store.updateUser(u.uid, { role: 'blocked' }); toast(`ปฏิเสธ ${displayName(u)} แล้ว`); } catch (ex) { toast(ex.message, 'bad'); }
+    try { await store.updateUser(u.uid, { role: 'blocked' }); toast(`ปฏิเสธ ${displayName(u)} แล้ว กดผิดเปิดกลับได้ที่ “บัญชีที่ปิดแล้ว”`); } catch (ex) { toast(ex.message, 'bad'); }
   };
   const saveSettings = async () => {
     const s = toLocalDate(f.startDate);
@@ -170,7 +170,7 @@ export function AdminView() {
       ${pending.length ? html`<ul class="user-list">${pending.map((u) => html`<li class="user-row" key=${u.uid}>
           <${Avatar} user=${u} /><span class="user-main"><b>${u.name}</b><small>${u.email || 'ไม่มีอีเมล'}</small></span>
           <span class="user-actions">
-            <button type="button" class="btn btn--ghost btn--sm" onClick=${() => reject(u)}>ปฏิเสธ</button>
+            <${ConfirmButton} label="ปฏิเสธ" confirmLabel="กดอีกครั้งเพื่อปฏิเสธ" onConfirm=${() => reject(u)} />
             <button type="button" class="btn btn--ghost btn--sm" onClick=${() => approve(u, 'supervisor')}>พนักงานผู้ดูแล</button>
             <button type="button" class="btn btn--primary btn--sm" onClick=${() => approve(u, 'student')}>นักศึกษา</button>
           </span></li>`)}</ul>`
