@@ -26,9 +26,14 @@ function UserEditor({ user, onClose }) {
       onClose();
     } catch (ex) { toast(ex.message, 'bad'); }
   };
+  const block = async () => {
+    try { await store.updateUser(user.uid, { role: 'blocked', isStudent: false }); toast(`ปิดบัญชี ${displayName(user)} แล้ว`); onClose(); } catch (ex) { toast(ex.message, 'bad'); }
+  };
   const showStudent = f.role === 'student' || f.isStudent;
   return html`<${Sheet} title=${`ข้อมูล ${displayName(user)}`} onClose=${onClose}
-    footer=${html`<button type="button" class="btn btn--ghost" onClick=${onClose}>ยกเลิก</button><button type="button" class="btn btn--primary" onClick=${save}>บันทึก</button>`}>
+    footer=${html`${self ? '' : html`<${ConfirmButton} label="ปิดบัญชี" confirmLabel="กดอีกครั้งเพื่อปิดบัญชี" icon="trash" onConfirm=${block} />`}
+      <span class="foot-space"></span>
+      <button type="button" class="btn btn--ghost" onClick=${onClose}>ยกเลิก</button><button type="button" class="btn btn--primary" onClick=${save}>บันทึก</button>`}>
     <div class="form">
       <div class="form-pair">
         <${Field} id="ue-name" label="ชื่อ – นามสกุล"><input id="ue-name" type="text" value=${f.name} onInput=${set('name')} /><//>
@@ -127,6 +132,10 @@ export function AdminView() {
   const users = Object.values(db.users);
   const pending = users.filter((u) => u.role === 'pending');
   const active = users.filter((u) => u.role !== 'pending' && u.role !== 'blocked');
+  const closed = users.filter((u) => u.role === 'blocked');
+  const reopen = async (u) => {
+    try { await store.updateUser(u.uid, { role: 'pending', isStudent: false }); toast(`เปิดบัญชี ${displayName(u)} แล้ว เลือกบทบาทให้ในกล่องด้านบน`, 'ok'); } catch (ex) { toast(ex.message, 'bad'); }
+  };
 
   const approve = async (u, role) => {
     try { await store.updateUser(u.uid, { role, isStudent: role === 'student' }); toast(`อนุมัติ ${displayName(u)} เป็น${roleName(role)}แล้ว`, 'ok'); } catch (ex) { toast(ex.message, 'bad'); }
@@ -177,6 +186,12 @@ export function AdminView() {
         <span class="pill">${roleName(u.role)}${u.role === 'admin' && u.isStudent ? ' · นักศึกษา' : ''}</span>
         <button type="button" class="icon-btn" onClick=${() => setEditing(u)} aria-label=${`แก้ไข ${displayName(u)}`}><${Icon} name="edit" /></button>
       </li>`)}</ul>
+      <p class="quiet">กดรูปดินสอเพื่อแก้ข้อมูล เปลี่ยนบทบาท หรือปิดบัญชี (เช่น บัญชีทดสอบ หรือคนที่ออกจากทีม)</p>
+      ${closed.length ? html`<details class="closed-users"><summary>บัญชีที่ปิดแล้ว ${closed.length}</summary>
+        <ul class="user-list">${closed.map((u) => html`<li class="user-row" key=${u.uid}>
+          <${Avatar} user=${u} /><span class="user-main"><b>${displayName(u)}</b><small>${u.email || u.name}</small></span>
+          <button type="button" class="btn btn--ghost btn--sm" onClick=${() => reopen(u)}>เปิดกลับ</button>
+        </li>`)}</ul></details>` : ''}
     </section>
 
     <section class="panel">

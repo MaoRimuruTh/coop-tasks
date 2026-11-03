@@ -728,6 +728,7 @@ button.g-title:hover { text-decoration: underline; text-underline-offset: 3px; }
 .invite-url { width: 100%; min-height: 44px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface-2); color: var(--ink); font: 13px var(--f-mono); }
 .invite-warn { font-size: 13px; color: var(--wait-ink); background: var(--wait-soft); padding: 6px 10px; border-radius: var(--r-sm); }
 .invite .btn-row { flex-wrap: wrap; }
+.closed-users summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-size: 14px; color: var(--ink-2); }
 
 /* ---------- gate (sign-in) ---------- */
 .gate { min-height: 100vh; display: grid; place-items: center; padding: 24px var(--gutter-r) 24px var(--gutter); }

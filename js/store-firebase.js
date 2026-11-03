@@ -305,7 +305,10 @@ export async function createFirebaseStore(config) {
         'เปลี่ยนบทบาทของตัวเองไม่ได้ ให้คนอื่นที่เป็นแอดมินเปลี่ยนให้');
       const b = writeBatch(fs);
       b.update(doc(fs, 'users', id), patch);
-      if (patch.role) logIn(b, `ตั้ง ${displayName(S.users[id])} เป็น${ROLE_TH[patch.role] || patch.role}`);
+      const who = displayName(S.users[id]);
+      if (patch.role === 'blocked') logIn(b, `ปิดบัญชี ${who}`);
+      else if (patch.role === 'pending') logIn(b, `เปิดบัญชี ${who} กลับ`);
+      else if (patch.role && (!S.users[id] || S.users[id].role !== patch.role)) logIn(b, `ตั้ง ${who} เป็น${ROLE_TH[patch.role] || patch.role}`);
       await b.commit();
     }),
     // one-time code from Ciel opens assigner mode for an hour; the reason goes into the activity log

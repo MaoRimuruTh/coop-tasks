@@ -253,8 +253,12 @@ export function createDemoStore() {
       const self = id === db.actor && me();
       must(!self || ((patch.role ?? self.role) === self.role && (patch.isStudent ?? self.isStudent) === self.isStudent),
         'เปลี่ยนบทบาทของตัวเองไม่ได้ ให้คนอื่นที่เป็นแอดมินเปลี่ยนให้');
+      const before = db.users[id] && db.users[id].role;
       db.users = { ...db.users, [id]: { ...db.users[id], ...patch } };
-      if (patch.role) log(`ตั้ง ${displayName(db.users[id])} เป็น${ROLE_TH[patch.role] || patch.role}`, null);
+      const who = displayName(db.users[id]);
+      if (patch.role === 'blocked') log(`ปิดบัญชี ${who}`, null);
+      else if (patch.role === 'pending') log(`เปิดบัญชี ${who} กลับ`, null);
+      else if (patch.role && patch.role !== before) log(`ตั้ง ${who} เป็น${ROLE_TH[patch.role] || patch.role}`, null);
       emit();
     },
     // the demo accepts any 12-character code; the real site checks one-time codes in firestore.rules
