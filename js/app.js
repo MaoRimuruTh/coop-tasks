@@ -1,6 +1,6 @@
 // App shell: data subscription, hash routing, navigation, demo persona switcher, toasts.
 import { html, render, useEffect, useMemo, useState, useCallback, useRef } from './vendor/preact-htm.js';
-import { calendar, weekOf, displayName, isStudent, isStaff, canAssign, canReview, isInternAdmin, assignerOpen, assignerUntil, fmtDay, fmtTime, fmtRange, TH_DAYS, stateOf, isLate, isUnread, unreadCount, otherOf } from './model.js';
+import { calendar, weekOf, displayName, isStudent, isStaff, canAssign, canReview, isInternAdmin, assignerOpen, assignerUntil, fmtDay, fmtTime, fmtRange, TH_DAYS, stateOf, isLate, isUnread, unreadCount, otherOf, talkUnread, woNumber } from './model.js';
 import { Icon } from './ui.js';
 import { Ctx } from './ctx.js';
 import { MyTasks } from './views/my.js';
@@ -106,9 +106,27 @@ function App({ store }) {
       toast(text, 'info', { label: 'เปิดแชท', run: () => { location.hash = where; } }, where);
     });
   }, [db.chats, db.chatsLoaded]);
-  // opening the chat (or the chat list) clears its message toast
+  // a new comment on a work order I am part of, while I am elsewhere: a toast with a way in
+  const talkMarks = useRef(null);
   useEffect(() => {
-    if (route === 'chat' || /^chatg?-/.test(route)) setToasts((x) => x.filter((t) => !t.key || (route !== 'chat' && t.key !== route)));
+    if (!db.me || !db.talkLoaded) return;
+    const talk = db.talk || {};
+    const prev = talkMarks.current;
+    talkMarks.current = Object.fromEntries(Object.entries(talk).map(([k, t]) => [k, t.lastAt || 0]));
+    if (!prev) return;
+    const here = readHash();
+    Object.entries(talk).forEach(([tid, t]) => {
+      const task = (db.tasks || {})[tid];
+      if (!task || (t.lastAt || 0) <= (prev[tid] || 0) || !talkUnread(db, task, db.me.uid)) return;
+      const where = `wo-${task.no}`;
+      if (here === where) return;
+      toast(`ความเห็นใหม่ ${woNumber(task)} · ${displayName((db.users || {})[t.lastBy])}: ${t.lastText}`, 'info',
+        { label: 'เปิดงาน', run: () => { location.hash = where; } }, where);
+    });
+  }, [db.talk, db.talkLoaded]);
+  // opening the chat (or the chat list, or the work order) clears its toast
+  useEffect(() => {
+    if (route === 'chat' || /^chatg?-/.test(route) || /^wo-/.test(route)) setToasts((x) => x.filter((t) => !t.key || (route !== 'chat' && t.key !== route)));
   }, [route]);
 
   const me = db.me;

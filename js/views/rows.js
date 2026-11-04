@@ -1,12 +1,22 @@
 // Work-order rows used by "งานของฉัน", "งานทั้งหมด" and the overview queues.
 import { html } from '../vendor/preact-htm.js';
 import { useApp } from '../ctx.js';
-import { stateOf, isLate, woNumber, displayName, STATES, worstState, dueInfo } from '../model.js';
-import { Lamp, DueChip, PrioChip, StateTag } from '../ui.js';
+import { stateOf, isLate, woNumber, displayName, STATES, worstState, dueInfo, talkUnread } from '../model.js';
+import { Lamp, DueChip, PrioChip, StateTag, Icon } from '../ui.js';
 
 export function planTitle(db, planId) {
   const p = db.plans[planId];
   return p ? p.title : 'ยังไม่ผูกกับหัวข้องาน';
+}
+
+/** Comment count on a work order, with a red dot when someone wrote since I last read them. */
+export function TalkMark({ task }) {
+  const { db, me } = useApp();
+  const t = (db.talk || {})[task.id];
+  if (!t || !t.n) return null;
+  const unread = talkUnread(db, task, me.uid);
+  return html`<span class=${`wo-talk${unread ? ' is-new' : ''}`} title=${unread ? 'มีความเห็นใหม่' : 'ความเห็น'}>
+    <${Icon} name="chat" size=${14} />${t.n}${unread ? html`<i class="chat-dot" aria-label="มีความเห็นใหม่"></i>` : ''}</span>`;
 }
 
 /** Row as an intern sees it: one lamp for "my" state, quick "รับทราบ". */
@@ -24,7 +34,7 @@ export function MyRow({ task, uid }) {
       <${Lamp} state=${s} late=${late} />
       <span class="wo-main">
         <span class="wo-title">${task.order != null ? html`<b class="wo-order">#${task.order}</b>` : ''}${task.title}</span>
-        <span class="wo-meta"><span class="mono">${woNumber(task)}</span><span>มอบโดย ${task.assignerName}</span>${task.mode === 'group' ? html`<span>งานกลุ่ม</span>` : ''}</span>
+        <span class="wo-meta"><span class="mono">${woNumber(task)}</span><span>มอบโดย ${task.assignerName}</span>${task.mode === 'group' ? html`<span>งานกลุ่ม</span>` : ''}<${TalkMark} task=${task} /></span>
         ${s === 'changes' && note ? html`<span class="wo-note">ให้แก้: ${note}</span>` : ''}
       </span>
       <span class="wo-side">
@@ -48,7 +58,7 @@ export function StaffRow({ task }) {
       <${Lamp} state=${worst.state} late=${worst.late} />
       <span class="wo-main">
         <span class="wo-title">${task.order != null ? html`<b class="wo-order">#${task.order}</b>` : ''}${task.title}</span>
-        <span class="wo-meta"><span class="mono">${woNumber(task)}</span>${task.mode === 'group' ? html`<span>งานกลุ่ม</span>` : ''}</span>
+        <span class="wo-meta"><span class="mono">${woNumber(task)}</span>${task.mode === 'group' ? html`<span>งานกลุ่ม</span>` : ''}<${TalkMark} task=${task} /></span>
         <span class="wo-people">${task.assignees.map((u) => {
           const s = stateOf(task, u);
           const late = isLate(task, u, now);

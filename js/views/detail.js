@@ -5,6 +5,7 @@ import { stateOf, isLate, woNumber, displayName, toLocalDate, fmtDate, fmtTime, 
 import { Sheet, Icon, StateTag, DueChip, PrioLabel, Lamp, Field, ConfirmButton } from '../ui.js';
 import { compressImage } from '../image.js';
 import { planTitle } from './rows.js';
+import { Talk } from './talk.js';
 
 const when = (s) => { const d = toLocalDate(s); return d ? `${fmtDay(d)} ${fmtTime(d)}` : ''; };
 const QUICK_REASONS = ['รูปไม่ชัด ถ่ายใหม่', 'ค่าไม่ตรงตามแบบ', 'ทำยังไม่ครบ', 'เขียนรายละเอียดเพิ่ม'];
@@ -202,6 +203,8 @@ export function TaskDetail({ task, onClose }) {
               ${s.for.includes(me.uid) ? html`<button type="button" class="link-btn" onClick=${() => run(() => store.unsubmit(s.id), 'ยกเลิกการส่งแล้ว แก้แล้วส่งใหม่ได้', 'info')}>ส่งผิด? ยกเลิกการส่งครั้งนี้</button>` : ''}`}
         </li>`)}</ol>`}
     </section>
+
+    <${Talk} task=${task} />
 
     <section class="people">
       <h4>ผู้รับงาน ${task.assignees.length} คน</h4>

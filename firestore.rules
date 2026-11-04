@@ -59,6 +59,18 @@ service cloud.firestore {
       let y = b.get('mentors', []).toSet();
       return x.difference(y).union(y.difference(x));
     }
+    // the author may fix or take back a chat message or a comment for 15 minutes; a taken-back one keeps no text
+    function msgEditOk() {
+      return resource.data.by == request.auth.uid
+        && resource.data.get('deleted', false) == false && resource.data.get('sys', false) == false
+        && request.time < resource.data.at + duration.value(15, 'm')
+        && request.resource.data.editedAt == request.time
+        && ((onlyChanged(['text', 'editedAt']) && request.resource.data.text is string
+              && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000)
+            || (onlyChanged(['text', 'deleted', 'editedAt']) && request.resource.data.deleted == true && request.resource.data.text == ''));
+    }
+    // who may comment on a work order: staff, the admin, and the interns on it
+    function talker(tid) { return staffDoc(profile()) || admin() || isAssignee(tid, request.auth.uid); }
     // a private chat is always one staff member and one intern
     function chatPair(a, b) {
       let ua = get(userPath(a)).data;
@@ -199,6 +211,45 @@ service cloud.firestore {
         allow delete: if (assigner() && !(request.auth.uid in resource.data.for))
           || (resource.data.by == request.auth.uid && resource.data.review == null);
       }
+
+      // ความเห็นในใบสั่งงาน
+      match /comments/{id} {
+        allow read: if approved();
+        allow create: if approved() && talker(tid)
+          && request.resource.data.keys().hasOnly(['by', 'text', 'at'])
+          && request.resource.data.by == request.auth.uid
+          && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000
+          && request.resource.data.at == request.time;
+        allow update: if approved() && msgEditOk();
+        // only together with the work order itself
+        allow delete: if assigner() && !existsAfter(/databases/$(database)/documents/tasks/$(tid));
+      }
+    }
+
+    // one small summary per work order with comments (for the red dot); people only ever gains the writer
+    match /talk/{tid} {
+      allow read: if approved();
+      allow create: if approved() && talker(tid)
+        && request.resource.data.keys().hasOnly(['n', 'lastAt', 'lastBy', 'lastText', 'people'])
+        && request.resource.data.n == 1 && request.resource.data.people == [request.auth.uid]
+        && request.resource.data.lastBy == request.auth.uid && request.resource.data.lastAt == request.time
+        && request.resource.data.lastText is string && request.resource.data.lastText.size() <= 140;
+      allow update: if approved() && talker(tid)
+        && request.resource.data.keys().hasOnly(['n', 'lastAt', 'lastBy', 'lastText', 'people'])
+        && request.resource.data.lastText is string && request.resource.data.lastText.size() <= 140
+        && request.resource.data.people.toSet().difference(resource.data.people.toSet()).hasOnly([request.auth.uid])
+        && resource.data.people.toSet().difference(request.resource.data.people.toSet()).size() == 0
+        && (
+          // a new comment
+          (request.resource.data.n == resource.data.n + 1 && request.resource.data.lastBy == request.auth.uid
+            && request.resource.data.lastAt == request.time)
+          // the writer of the last comment fixes or takes it back
+          || (onlyChanged(['lastText']) && resource.data.lastBy == request.auth.uid));
+      allow delete: if assigner() && !existsAfter(/databases/$(database)/documents/tasks/$(tid));
+    }
+    // when I last read the comments of each work order; mine alone
+    match /seen/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
     }
 
     // the whole team's statuses are read with one collection-group listener
@@ -259,6 +310,9 @@ service cloud.firestore {
       allow update: if approved() && request.auth.uid in resource.data.members && (
         // a new message line and "seen"
         (onlyChanged(['lastAt', 'lastText', 'lastBy', 'seen']) && chatSummaryOk())
+        // the writer of the last message fixes or takes it back: the preview follows
+        || (onlyChanged(['lastText']) && resource.data.lastBy == request.auth.uid
+            && request.resource.data.lastText is string && request.resource.data.lastText.size() <= 140)
         // staff in a group: rename, add or remove people, take over or hand over the host (to another staff member)
         || (resource.data.get('kind', 'pair') == 'group' && staffDoc(profile())
             && onlyChanged(['name', 'members', 'host', 'lastAt', 'lastText', 'lastBy', 'seen']) && chatSummaryOk()
@@ -283,7 +337,8 @@ service cloud.firestore {
           && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000
           && request.resource.data.at == request.time
           && request.resource.data.get('sys', false) is bool;
-        allow update, delete: if false;
+        allow update: if approved() && request.auth.uid in get(chatPath(cid)).data.members && msgEditOk();
+        allow delete: if false;
       }
     }
 

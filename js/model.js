@@ -273,6 +273,22 @@ export const groupHasStaff = (users, ids) => ids.some((id) => isStaff(users[id])
 export const MAX_GROUP = 20;
 export const groupAutoName = (users, ids) => ids.map((id) => displayName(users[id])).join(', ').slice(0, 60);
 export const pairId = (a, b) => [a, b].sort().join('_');
+
+// ---------- fixing or taking back a message (chat and work-order comments) ----------
+export const EDIT_MINUTES = 15;
+/** My own message, not taken back, sent less than 15 minutes ago (the rules check the same on the server). */
+export const canEditMsg = (m, uid, nowMs) => !!m && m.by === uid && !m.deleted && !m.sys && !!m.at && nowMs - m.at < EDIT_MINUTES * 60000;
+
+// ---------- comments on a work order (ความเห็น) ----------
+/** Staff, the admin and the interns on the work order may comment. */
+export const canComment = (u, task) => !!u && !!task && (isStaff(u) || u.role === 'admin' || task.assignees.includes(u.uid));
+/** Comments light up for the interns on it, whoever gave it, and anyone who has commented on it. */
+export const talkInvolved = (task, uid, talk) => task.assignees.includes(uid) || task.createdBy === uid || ((talk && talk.people) || []).includes(uid);
+export const talkUnread = (db, task, uid) => {
+  const t = (db.talk || {})[task.id];
+  if (!t || !t.lastBy || t.lastBy === uid || !talkInvolved(task, uid, t)) return false;
+  return (t.lastAt || 0) > ((db.commentSeen || {})[task.id] || 0);
+};
 export const otherOf = (chat, uid) => (chat.members || []).find((x) => x !== uid);
 export const isUnread = (chat, uid) => !!chat && (chat.members || []).includes(uid) && !!chat.lastBy && chat.lastBy !== uid
   && (chat.lastAt || 0) > ((chat.seen || {})[uid] || 0);

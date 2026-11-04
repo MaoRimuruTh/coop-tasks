@@ -1,5 +1,5 @@
 // Small shared UI pieces: icons, status lamps/tags, due chips, priority gauge, sheets.
-import { html, useEffect, useRef } from './vendor/preact-htm.js';
+import { html, useEffect, useRef, useState } from './vendor/preact-htm.js';
 import { STATES, dueInfo, priorityOf, displayName, toLocalDate, fmtDay } from './model.js';
 
 const PATHS = {
@@ -133,6 +133,18 @@ export function Sheet({ title, onClose, children, footer, wide, headActions }) {
 
 export function Empty({ title, text, children }) {
   return html`<div class="empty"><p class="empty-title">${title}</p>${text ? html`<p class="empty-text">${text}</p>` : ''}${children}</div>`;
+}
+
+/** A small text action that asks for a second tap (taking back a message, a comment). */
+export function TwoTap({ label, confirmLabel, onConfirm, cls = 'link-btn link-btn--inline' }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return undefined;
+    const t = setTimeout(() => setArmed(false), 4000);
+    return () => clearTimeout(t);
+  }, [armed]);
+  return html`<button type="button" class=${`${cls}${armed ? ' is-armed' : ''}`}
+    onClick=${(e) => { e.stopPropagation(); if (armed) { setArmed(false); onConfirm(); } else setArmed(true); }}>${armed ? confirmLabel : label}</button>`;
 }
 
 /** Two-step confirm built into the page (the preview frame blocks confirm()). */

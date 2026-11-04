@@ -37,11 +37,12 @@ export async function createFirebaseStore(config) {
     A.connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
     F.connectFirestoreEmulator(fs, '127.0.0.1', 8080);
   }
-  const { doc, collection, collectionGroup, onSnapshot, getDoc, getDocs, setDoc, updateDoc, deleteDoc, writeBatch, runTransaction, query, orderBy, limit, limitToLast, where, Timestamp, serverTimestamp } = F;
+  const { doc, collection, collectionGroup, onSnapshot, getDoc, getDocs, setDoc, updateDoc, deleteDoc, writeBatch, runTransaction, query, orderBy, limit, limitToLast, where, Timestamp, serverTimestamp, increment, arrayUnion } = F;
   // chat times are server timestamps (one clock for both phones); the app works with milliseconds
   const ms = (v) => (v && typeof v.toMillis === 'function' ? v.toMillis() : typeof v === 'number' ? v : 0);
 
-  const S = { me: null, users: {}, plans: {}, tasks: {}, progress: {}, settings: DEFAULT_SETTINGS, activity: [], join: null, chats: {}, chatOff: false, online: navigator.onLine, loaded: false };
+  const S = { me: null, users: {}, plans: {}, tasks: {}, progress: {}, settings: DEFAULT_SETTINGS, activity: [], join: null, chats: {}, chatOff: false,
+    talk: {}, seen: {}, talkLoaded: false, online: navigator.onLine, loaded: false };
   const listeners = new Set();
   const subIndex = {}; // subId -> taskId (filled by subsFor)
   const newNos = {}; // taskId -> work-order number, for tasks created on this phone
@@ -56,7 +57,7 @@ export async function createFirebaseStore(config) {
     const tasks = {};
     for (const [id, t] of Object.entries(S.tasks)) tasks[id] = { ...t, state: S.progress[id] || {} };
     return { settings: { ...DEFAULT_SETTINGS, ...S.settings }, users: S.users, plans: S.plans, tasks, activity: S.activity, join: S.join,
-      chats: S.chats, chatOff: S.chatOff, chatsLoaded: !!S.chatsLoaded, me: S.me, actor: S.me && S.me.uid, online: S.online, loaded: S.loaded, persistOk: true };
+      chats: S.chats, chatOff: S.chatOff, chatsLoaded: !!S.chatsLoaded, talk: S.talk, commentSeen: S.seen, talkLoaded: S.talkLoaded, me: S.me, actor: S.me && S.me.uid, online: S.online, loaded: S.loaded, persistOk: true };
   }
   const emit = () => { snap = build(); listeners.forEach((fn) => fn()); };
   const uid = () => auth.currentUser && auth.currentUser.uid;
@@ -107,6 +108,19 @@ export async function createFirebaseStore(config) {
       }));
       S.chatOff = false; S.chatsLoaded = true; emit();
     }, (e) => { console.warn('chat listener stopped:', e && e.code); S.chatOff = true; emit(); }));
+    // comment summaries per work order, and when I last read each one's comments
+    keep(onSnapshot(collection(fs, 'talk'), (qs) => {
+      S.talk = Object.fromEntries(qs.docs.map((d) => {
+        const x = d.data({ serverTimestamps: 'estimate' });
+        return [d.id, { n: x.n || 0, lastAt: ms(x.lastAt), lastBy: x.lastBy || null, lastText: x.lastText || '', people: x.people || [] }];
+      }));
+      S.talkLoaded = true; emit();
+    }, (e) => console.warn('comment listener stopped:', e && e.code)));
+    keep(onSnapshot(doc(fs, 'seen', S.me.uid), (d) => {
+      const c = (d.exists() && d.data({ serverTimestamps: 'estimate' }).comments) || {};
+      S.seen = Object.fromEntries(Object.entries(c).map(([k, v]) => [k, ms(v)]));
+      emit();
+    }, (e) => console.warn('seen listener stopped:', e && e.code)));
     if (S.me && S.me.role === 'admin') {
       // invite codes for the two invite links; made the first time the admin opens the app
       listen(doc(fs, 'meta', 'join'), (d) => {
@@ -215,9 +229,12 @@ export async function createFirebaseStore(config) {
         t = { id, ...d.data() };
       }
       notOwn(t.assignees);
-      const [subs, files] = await Promise.all([getDocs(collection(fs, 'tasks', id, 'subs')), getDocs(query(collection(fs, 'attachments'), where('taskId', '==', id)))]);
+      const [subs, files, talk] = await Promise.all([getDocs(collection(fs, 'tasks', id, 'subs')), getDocs(query(collection(fs, 'attachments'), where('taskId', '==', id))),
+        getDocs(collection(fs, 'tasks', id, 'comments'))]);
       const b = writeBatch(fs);
       subs.docs.forEach((d) => b.delete(d.ref));
+      talk.docs.forEach((d) => b.delete(d.ref));
+      if (S.talk[id]) b.delete(doc(fs, 'talk', id));
       files.docs.forEach((d) => b.delete(d.ref));
       t.assignees.forEach((a) => b.delete(doc(fs, 'tasks', id, 'progress', a)));
       b.delete(doc(fs, 'tasks', id));
@@ -392,7 +409,7 @@ export async function createFirebaseStore(config) {
           tries = 0;
           cb(qs.docs.map((d) => {
             const x = d.data({ serverTimestamps: 'estimate' });
-            return { id: d.id, by: x.by, text: x.text, sys: !!x.sys, at: ms(x.at), pending: d.metadata.hasPendingWrites };
+            return { id: d.id, by: x.by, text: x.text, sys: !!x.sys, deleted: !!x.deleted, editedAt: ms(x.editedAt), at: ms(x.at), pending: d.metadata.hasPendingWrites };
           }));
         }, (e) => {
           // a group made a moment ago may not have reached the server yet: look again shortly
@@ -419,6 +436,66 @@ export async function createFirebaseStore(config) {
       return updateDoc(doc(fs, 'chats', cid), { [`seen.${uid()}`]: serverTimestamp() }).catch((e) => console.warn('seen:', e && e.code));
     },
     chatId: (otherId) => pairId(uid(), otherId),
+    // fix or take back my own message within 15 minutes; the chat list preview follows when it was the last one
+    editChat(cid, mid, text, isLast) {
+      const body = String(text || '').trim();
+      must(body, 'ข้อความว่างไม่ได้ ถ้าจะลบให้กดยกเลิกข้อความ');
+      must(body.length <= 2000, 'ข้อความยาวเกิน 2,000 ตัวอักษร');
+      const c = S.chats[cid]; const me = uid();
+      const b = writeBatch(fs);
+      b.update(doc(fs, 'chats', cid, 'msgs', mid), { text: body, editedAt: serverTimestamp() });
+      if (isLast && c && c.lastBy === me) b.update(doc(fs, 'chats', cid), { lastText: body.slice(0, 140) });
+      return b.commit().catch((e) => { throw thaiError(e); });
+    },
+    unsendChat(cid, mid, isLast) {
+      const c = S.chats[cid]; const me = uid();
+      const b = writeBatch(fs);
+      b.update(doc(fs, 'chats', cid, 'msgs', mid), { text: '', deleted: true, editedAt: serverTimestamp() });
+      if (isLast && c && c.lastBy === me) b.update(doc(fs, 'chats', cid), { lastText: 'ยกเลิกข้อความ' });
+      return b.commit().catch((e) => { throw thaiError(e); });
+    },
+
+    // ความเห็นในใบสั่งงาน: tasks/{tid}/comments, with a small summary in talk/{tid} for the red dot
+    subscribeComments(tid, cb) {
+      const q = query(collection(fs, 'tasks', tid, 'comments'), orderBy('at'));
+      return onSnapshot(q, { includeMetadataChanges: true }, (qs) => cb(qs.docs.map((d) => {
+        const x = d.data({ serverTimestamps: 'estimate' });
+        return { id: d.id, by: x.by, text: x.text, deleted: !!x.deleted, at: ms(x.at), editedAt: ms(x.editedAt), pending: d.metadata.hasPendingWrites };
+      })), (e) => cb(null, thaiError(e)));
+    },
+    addComment(tid, text) {
+      const body = String(text || '').trim();
+      const t = S.tasks[tid]; const me = uid();
+      must(body, 'พิมพ์ความเห็นก่อน');
+      must(body.length <= 2000, 'ความเห็นยาวเกิน 2,000 ตัวอักษร');
+      must(isStaff(S.me) || role() === 'admin' || (t && t.assignees.includes(me)), 'เฉพาะพี่ผู้ดูแลและน้องที่ได้งานนี้แสดงความเห็นได้');
+      const b = writeBatch(fs);
+      b.set(doc(collection(fs, 'tasks', tid, 'comments')), { by: me, text: body, at: serverTimestamp() });
+      // counted and listed on the server, so two people commenting at once never undo each other
+      b.set(doc(fs, 'talk', tid), { n: increment(1), lastAt: serverTimestamp(), lastBy: me, lastText: body.slice(0, 140), people: arrayUnion(me) }, { merge: true });
+      b.set(doc(fs, 'seen', me), { comments: { [tid]: serverTimestamp() } }, { merge: true });
+      return b.commit().catch((e) => { throw thaiError(e); });
+    },
+    editComment(tid, id, text, isLast) {
+      const body = String(text || '').trim();
+      must(body, 'ความเห็นว่างไม่ได้ ถ้าจะลบให้กดยกเลิก');
+      must(body.length <= 2000, 'ความเห็นยาวเกิน 2,000 ตัวอักษร');
+      const t = S.talk[tid]; const me = uid();
+      const b = writeBatch(fs);
+      b.update(doc(fs, 'tasks', tid, 'comments', id), { text: body, editedAt: serverTimestamp() });
+      if (isLast && t && t.lastBy === me) b.update(doc(fs, 'talk', tid), { lastText: body.slice(0, 140) });
+      return b.commit().catch((e) => { throw thaiError(e); });
+    },
+    unsendComment(tid, id, isLast) {
+      const t = S.talk[tid]; const me = uid();
+      const b = writeBatch(fs);
+      b.update(doc(fs, 'tasks', tid, 'comments', id), { text: '', deleted: true, editedAt: serverTimestamp() });
+      if (isLast && t && t.lastBy === me) b.update(doc(fs, 'talk', tid), { lastText: 'ยกเลิกความเห็น' });
+      return b.commit().catch((e) => { throw thaiError(e); });
+    },
+    markCommentsSeen(tid) {
+      return setDoc(doc(fs, 'seen', uid()), { comments: { [tid]: serverTimestamp() } }, { merge: true }).catch((e) => console.warn('seen:', e && e.code));
+    },
 
     // group chats: chats/{autoId} with a name, a host (a staff member who must stay in) and up to 20 people
     createGroup({ name, members }) {

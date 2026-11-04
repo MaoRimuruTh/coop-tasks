@@ -3,8 +3,8 @@
 import { html, useState, useEffect, useRef, useLayoutEffect } from '../vendor/preact-htm.js';
 import { useApp } from '../ctx.js';
 import { chatPeople, groupPeople, groupHasStaff, groupAutoName, pairId, isUnread, isStaff, isStudent, mentorsOf,
-  displayName, fmtDay, fmtTime, dateKey, addDays, MAX_GROUP } from '../model.js';
-import { Icon, Avatar, Empty, Sheet, Field, ConfirmButton } from '../ui.js';
+  displayName, fmtDay, fmtTime, dateKey, addDays, MAX_GROUP, canEditMsg, EDIT_MINUTES } from '../model.js';
+import { Icon, Avatar, Empty, Sheet, Field, ConfirmButton, TwoTap } from '../ui.js';
 
 export function ChatView() {
   const { route } = useApp();
@@ -173,6 +173,8 @@ function Conversation({ otherId, groupId }) {
   const [text, setText] = useState('');
   const [err, setErr] = useState('');
   const [settings, setSettings] = useState(false);
+  const [active, setActive] = useState(null); // my message with its actions open
+  const [editing, setEditing] = useState(null); // my message being fixed
   const seenFor = useRef(0);
   const first = useRef(true);
   const box = useRef();
@@ -207,15 +209,29 @@ function Conversation({ otherId, groupId }) {
   }, [msgs && msgs.length]);
 
   const grow = (el) => { el.style.height = 'auto'; el.style.height = `${Math.min(el.scrollHeight, 140)}px`; };
+  const isLast = (m) => !!msgs && msgs.length > 0 && msgs[msgs.length - 1].id === m.id;
+  const clearBox = () => { setText(''); if (box.current) { box.current.value = ''; grow(box.current); } };
   const send = () => {
     const body = text.trim();
     if (!body) return;
     try {
-      const p = groupId ? store.sendGroup(groupId, body) : store.sendChat(otherId, body);
-      setText('');
-      if (box.current) { box.current.value = ''; grow(box.current); box.current.focus(); }
-      p.catch((ex) => { toast(ex.message, 'bad'); setText((t) => t || body); });
+      const was = editing;
+      const p = was ? store.editChat(cid, was.id, body, isLast(was))
+        : groupId ? store.sendGroup(groupId, body) : store.sendChat(otherId, body);
+      clearBox(); setEditing(null);
+      if (box.current) box.current.focus();
+      p.catch((ex) => { toast(ex.message, 'bad'); setText((t) => t || body); if (was) setEditing(was); });
     } catch (ex) { toast(ex.message, 'bad'); }
+  };
+  const startEdit = (m) => {
+    setActive(null); setEditing(m); setText(m.text);
+    setTimeout(() => { if (box.current) { grow(box.current); box.current.focus(); } }, 30);
+  };
+  const stopEdit = () => { setEditing(null); clearBox(); };
+  const unsend = (m) => {
+    setActive(null);
+    if (editing && editing.id === m.id) stopEdit();
+    store.unsendChat(cid, m.id, isLast(m)).catch((ex) => toast(ex.message, 'bad'));
   };
   const onKey = (e) => {
     // Enter sends on a computer; on a phone Enter makes a new line and the button sends
@@ -241,7 +257,7 @@ function Conversation({ otherId, groupId }) {
       <div class="thread-who"><b>${title}</b><small>${sub}</small></div>
       ${group ? html`<button type="button" class="icon-btn thread-more" onClick=${() => setSettings(true)} aria-label="ข้อมูลกลุ่ม"><${Icon} name="users" /></button>` : ''}
     </header>
-    <p class="thread-note"><${Icon} name="lock" size=${14} />${group ? `เห็นเฉพาะ ${group.members.length} คนในกลุ่มนี้` : 'เห็นกันแค่สองคนในเว็บนี้'}</p>
+    <p class="thread-note"><${Icon} name="lock" size=${14} />${`${group ? `เห็นเฉพาะ ${group.members.length} คนในกลุ่มนี้` : 'เห็นกันแค่สองคนในเว็บนี้'} · แตะข้อความของเราเพื่อแก้หรือยกเลิกได้ภายใน ${EDIT_MINUTES} นาที`}</p>
     ${err ? html`<p class="callout callout--stop">${err}</p>` : ''}
     ${msgs === null && !err ? html`<p class="quiet">กำลังโหลด…</p>` : ''}
     ${msgs && msgs.filter((m) => !m.sys).length === 0 ? html`<p class="thread-empty">${group ? 'ยังไม่มีข้อความ ทักกลุ่มก่อนได้เลย' : 'ยังไม่มีข้อความ ทักไปก่อนได้เลย'}</p>` : ''}
@@ -258,18 +274,30 @@ function Conversation({ otherId, groupId }) {
       const mine = m.by === me.uid;
       const showWho = group && !mine && (sep || lastBy !== m.by);
       lastBy = m.by;
+      const fixable = canEditMsg(m, me.uid, now.getTime()) && !m.pending;
+      const open = fixable && active === m.id;
+      const toggle = () => { if (fixable) setActive(open ? null : m.id); };
       return html`${sep ? html`<li class="thread-day" key=${`d-${day}`}><span>${day}</span></li>` : ''}
-        <li key=${m.id} class=${`bubble${mine ? ' bubble--me' : ''}`}>
+        <li key=${m.id} class=${`bubble${mine ? ' bubble--me' : ''}${m.deleted ? ' bubble--gone' : ''}${fixable ? ' is-fixable' : ''}${open || (editing && editing.id === m.id) ? ' is-picked' : ''}`}
+          role=${fixable ? 'button' : undefined} tabIndex=${fixable ? 0 : undefined} aria-expanded=${fixable ? open : undefined}
+          onClick=${toggle} onKeyDown=${(e) => { if (fixable && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggle(); } }}>
           ${showWho ? html`<span class="bubble-who">${displayName(db.users[m.by])}</span>` : ''}
-          <p class="bubble-text">${withLinks(m.text || '')}</p>
-          <span class="bubble-time">${m.pending ? 'กำลังส่ง…' : fmtTime(d)}</span>
-        </li>`;
+          ${m.deleted ? html`<p class="bubble-text">${mine ? 'คุณยกเลิกข้อความนี้แล้ว' : 'ยกเลิกข้อความแล้ว'}</p>`
+            : html`<p class="bubble-text">${withLinks(m.text || '')}</p>`}
+          <span class="bubble-time">${m.pending ? 'กำลังส่ง…' : `${m.editedAt && !m.deleted ? 'แก้ไขแล้ว · ' : ''}${fmtTime(d)}`}</span>
+        </li>
+        ${open ? html`<li key=${`a-${m.id}`} class="bubble-actions">
+          <button type="button" class="link-btn link-btn--inline" onClick=${() => startEdit(m)}>แก้ไข</button>
+          <${TwoTap} label="ยกเลิกข้อความ" confirmLabel="แตะอีกครั้งเพื่อยกเลิก" onConfirm=${() => unsend(m)} />
+        </li>` : ''}`;
     })}</ol>
-    <form class="compose" onSubmit=${(e) => { e.preventDefault(); send(); }}>
+    <form class=${`compose${editing ? ' is-editing' : ''}`} onSubmit=${(e) => { e.preventDefault(); send(); }}>
+      ${editing ? html`<p class="edit-band"><${Icon} name="edit" size=${16} />กำลังแก้ข้อความ
+        <button type="button" class="link-btn link-btn--inline" onClick=${stopEdit}>เลิกแก้</button></p>` : ''}
       <label class="sr-only" for="chat-input">${placeholder}</label>
       <textarea id="chat-input" ref=${box} rows="1" maxlength="2000" placeholder=${placeholder}
         value=${text} onInput=${(e) => { setText(e.target.value); grow(e.target); }} onKeyDown=${onKey}></textarea>
-      <button type="submit" class="btn btn--primary compose-send" disabled=${!text.trim()} aria-label="ส่งข้อความ"><${Icon} name="send" size=${20} /></button>
+      <button type="submit" class="btn btn--primary compose-send" disabled=${!text.trim()} aria-label=${editing ? 'บันทึกการแก้' : 'ส่งข้อความ'}><${Icon} name=${editing ? 'check' : 'send'} size=${20} /></button>
     </form>
     ${settings && group ? html`<${GroupSheet} chat=${group} onClose=${() => setSettings(false)} />` : ''}
   </section>`;

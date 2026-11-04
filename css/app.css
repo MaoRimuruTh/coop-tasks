@@ -711,6 +711,40 @@ button.g-title:hover { text-decoration: underline; text-underline-offset: 3px; }
 }
 .compose textarea:focus { outline: none; border-color: var(--ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--signal) 60%, transparent); }
 .compose-send { flex: none; width: 52px; padding: 0; }
+.compose { flex-wrap: wrap; }
+.edit-band { flex: 1 1 100%; display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.bubble.is-fixable { cursor: pointer; }
+.bubble.is-picked { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--signal); }
+.bubble--gone .bubble-text { font-style: italic; opacity: .75; }
+.bubble-actions { align-self: flex-end; display: flex; gap: 16px; margin: -2px 4px 4px; }
+.link-btn.is-armed { color: var(--stop-ink); font-weight: 700; }
+.wo-talk { display: inline-flex; align-items: center; gap: 3px; }
+.wo-talk.is-new { color: var(--stop-ink); font-weight: 700; }
+.wo-talk .chat-dot { width: 8px; height: 8px; margin-left: 2px; }
+
+/* ---------- ความเห็นในใบสั่งงาน ---------- */
+.talk { display: flex; flex-direction: column; gap: 10px; }
+.talk h4 { font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.talk-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.talk-item { display: flex; gap: 10px; align-items: flex-start; }
+.talk-item.is-editing .talk-body { box-shadow: 0 0 0 2px var(--signal); border-radius: var(--r-sm); }
+.talk-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.talk-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: 12.5px; color: var(--ink-3); }
+.talk-head b { color: var(--ink); font-size: 14px; }
+.talk-role { font-size: 11.5px; font-weight: 600; background: var(--surface-2); color: var(--ink-2); padding: 0 6px; border-radius: var(--r-sm); }
+.talk-text { white-space: pre-wrap; overflow-wrap: anywhere; font: 400 15px/1.6 var(--f-read); }
+.talk-text a { color: inherit; text-decoration: underline; }
+.talk-text--gone { font-style: italic; color: var(--ink-3); }
+.talk-actions { display: flex; gap: 16px; }
+.talk-compose { display: flex; flex-direction: column; gap: 6px; }
+.talk-row { display: flex; align-items: flex-end; gap: 8px; }
+.talk-row textarea {
+  flex: 1 1 auto; min-width: 0; min-height: 44px; max-height: 160px; resize: none; padding: 9px 12px; font: 400 16px/1.5 var(--f-read);
+  border: 1.5px solid var(--line-strong); border-radius: var(--r); background: var(--surface); color: var(--ink);
+}
+.talk-row textarea:focus { outline: none; border-color: var(--ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--signal) 60%, transparent); }
+.talk-send { flex: none; width: 48px; padding: 0; }
+.talk-send:disabled { opacity: .45; }
 .compose-send:disabled { opacity: .45; }
 @media (min-width: 900px) {
   .main:has(.page--thread) { padding-bottom: 0; }

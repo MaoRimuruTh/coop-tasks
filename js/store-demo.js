@@ -1,8 +1,8 @@
 // Demo store: same interface as the Firebase store, but everything lives in this
 // browser (memory + localStorage). Used for the preview before Firebase is set up.
-import { addDays, stamp, stampS, dateKey, displayName, woNumber, ROLE_TH, shortTitle, canAssign, canReview, isInternAdmin, normCode, fmtTime, isStudent, isStaff, mentorLog, toggleMentor, MAX_MENTORS, canChat, pairId, isActive, groupHasStaff, groupAutoName, MAX_GROUP } from './model.js';
+import { addDays, stamp, stampS, dateKey, displayName, woNumber, ROLE_TH, shortTitle, canAssign, canReview, isInternAdmin, normCode, fmtTime, isStudent, isStaff, mentorLog, toggleMentor, MAX_MENTORS, canChat, pairId, isActive, groupHasStaff, groupAutoName, MAX_GROUP, canEditMsg, EDIT_MINUTES } from './model.js';
 
-const KEY = 'coop-demo-v5';
+const KEY = 'coop-demo-v6';
 
 function svgPhoto(label, hue) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480">
@@ -94,6 +94,12 @@ function seed() {
       companyAddress: '', companyPhone: '', companyFax: '', companyHours: 'จันทร์–ศุกร์ 08:00–17:00, เสาร์ 08:00–17:00',
       workDays: 'จันทร์–เสาร์', workStart: '08:00', workEnd: '18:00', breakStart: '12:00', breakEnd: '13:00' },
     users, plans, tasks, subs, files,
+    comments: { t2: [
+      { id: 'c1', by: 'u-ek', text: 'วัด 4 จุดตามแบบนะ จุดที่ 3 ใช้ไมโครมิเตอร์ ไม่ใช้เวอร์เนียร์', at: msAgo(55) },
+      { id: 'c2', by: 'u-nat', text: 'ครับพี่ แล้วจดค่าเป็นทศนิยม 2 หรือ 3 ตำแหน่งครับ', at: msAgo(50) },
+      { id: 'c3', by: 'u-ek', text: '3 ตำแหน่ง ตามแบบ TC-112', at: msAgo(20) },
+    ] },
+    seen: { 'u-nat': { t2: msAgo(50) }, 'u-ek': { t2: msAgo(20) } },
     chats: { 'g-qc': { id: 'g-qc', kind: 'group', name: 'วัดชิ้นงานล็อต A', host: 'u-ek', createdBy: 'u-ek', members: ['u-ek', 'u-oat', 'u-nat', 'u-ton'],
       lastText: 'พี่โอ๊ตครับ ฝากบอกพี่เอกว่าไมโครมิเตอร์ตัวที่ 2 อ่านค่าเพี้ยนครับ', lastBy: 'u-ton', lastAt: msAgo(12), seen: { 'u-ton': msAgo(12), 'u-ek': msAgo(30) } },
       'u-ek_u-nat': { id: 'u-ek_u-nat', members: ['u-ek', 'u-nat'], lastText: 'งานวัดชิ้นงานล็อต A ติดตรงไหนทักมาได้เลยนะ', lastBy: 'u-ek',
@@ -136,6 +142,23 @@ export function createDemoStore() {
     db.activity = [{ at: stampS(new Date()), by: db.actor, text: t ? `${text} “${shortTitle(t.title)}”` : text, taskId }, ...db.activity].slice(0, 300);
   };
   const must = (ok, msg) => { if (!ok) throw new Error(msg); };
+  // edit (text) or take back (text = null) my own chat message or comment within 15 minutes
+  const fixMsg = (kind, key, id, text, isLast) => {
+    const box = kind === 'chat' ? 'msgs' : 'comments';
+    const list = (db[box] || {})[key] || [];
+    const m = list.find((x) => x.id === id);
+    must(canEditMsg(m, db.actor, Date.now()), `แก้หรือยกเลิกได้เฉพาะข้อความของเราภายใน ${EDIT_MINUTES} นาที`);
+    const body = text == null ? null : String(text).trim();
+    if (body != null) must(body && body.length <= 2000, 'ข้อความว่างไม่ได้ ถ้าจะลบให้กดยกเลิก');
+    const next = { ...m, editedAt: Date.now(), ...(body == null ? { text: '', deleted: true } : { text: body }) };
+    db[box] = { ...db[box], [key]: list.map((x) => (x.id === id ? next : x)) };
+    if (kind === 'chat' && isLast) {
+      const c = (db.chats || {})[key];
+      if (c && c.lastBy === db.actor) db.chats = { ...db.chats, [key]: { ...c, lastText: body == null ? 'ยกเลิกข้อความ' : body.slice(0, 140) } };
+    }
+    emit();
+    return Promise.resolve();
+  };
   const LOCKED = 'บัญชีนี้ล็อกโหมดผู้มอบงานอยู่ ขอรหัสจากชิเอลแล้วปลดล็อกที่หน้าจัดการระบบ';
   const mayAssign = () => must(canAssign(me()), isInternAdmin(me()) ? LOCKED : 'เฉพาะพี่ผู้ดูแลหรือแอดมินที่สั่งงานได้');
   const notOwn = (assignees) => must(!(isInternAdmin(me()) && assignees.includes(db.actor)), 'งานที่ตัวเองเป็นผู้รับ ให้พี่ผู้ดูแลเป็นคนสั่งหรือแก้');
@@ -144,7 +167,13 @@ export function createDemoStore() {
     mode: 'demo',
     ready: Promise.resolve(),
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
-    snapshot() { return { ...db, chats: db.chats || {}, chatsLoaded: true, me: me(), persistOk }; },
+    snapshot() {
+      const talk = Object.fromEntries(Object.entries(db.comments || {}).filter(([, l]) => l.length).map(([tid, l]) => {
+        const last = l[l.length - 1];
+        return [tid, { n: l.length, lastAt: last.at, lastBy: last.by, lastText: last.deleted ? 'ยกเลิกความเห็น' : last.text.slice(0, 140), people: [...new Set(l.map((c) => c.by))] }];
+      }));
+      return { ...db, chats: db.chats || {}, chatsLoaded: true, talk, commentSeen: (db.seen || {})[db.actor] || {}, talkLoaded: true, me: me(), persistOk };
+    },
 
     // demo-only helpers
     async rotateJoinCode(which) {
@@ -206,6 +235,35 @@ export function createDemoStore() {
       return Promise.resolve();
     },
     chatId: (otherId) => pairId(db.actor, otherId),
+    editChat(cid, mid, text, isLast) { return fixMsg('chat', cid, mid, text, isLast); },
+    unsendChat(cid, mid, isLast) { return fixMsg('chat', cid, mid, null, isLast); },
+
+    // ความเห็นในใบสั่งงาน
+    subscribeComments(tid, cb) {
+      const fire = () => cb(((db.comments || {})[tid] || []).slice());
+      fire();
+      listeners.add(fire);
+      return () => listeners.delete(fire);
+    },
+    addComment(tid, text) {
+      const body = String(text || '').trim();
+      const t = db.tasks[tid];
+      must(body, 'พิมพ์ความเห็นก่อน');
+      must(body.length <= 2000, 'ความเห็นยาวเกิน 2,000 ตัวอักษร');
+      must(isStaff(me()) || me()?.role === 'admin' || (t && t.assignees.includes(db.actor)), 'เฉพาะพี่ผู้ดูแลและน้องที่ได้งานนี้แสดงความเห็นได้');
+      const at = Date.now();
+      db.comments = { ...(db.comments || {}), [tid]: [...((db.comments || {})[tid] || []), { id: uid('c'), by: db.actor, text: body, at }] };
+      db.seen = { ...(db.seen || {}), [db.actor]: { ...((db.seen || {})[db.actor] || {}), [tid]: at } };
+      emit();
+      return Promise.resolve();
+    },
+    editComment(tid, id, text, isLast) { return fixMsg('comment', tid, id, text, isLast); },
+    unsendComment(tid, id, isLast) { return fixMsg('comment', tid, id, null, isLast); },
+    markCommentsSeen(tid) {
+      db.seen = { ...(db.seen || {}), [db.actor]: { ...((db.seen || {})[db.actor] || {}), [tid]: Date.now() } };
+      emit();
+      return Promise.resolve();
+    },
     createGroup({ name, members }) {
       const meId = db.actor;
       const all = [...new Set([meId, ...(members || [])])].filter((x) => isActive(db.users[x]) || x === meId);
@@ -288,6 +346,7 @@ export function createDemoStore() {
       const { [id]: _gone, ...rest } = db.tasks;
       db.tasks = rest;
       db.subs = Object.fromEntries(Object.entries(db.subs).filter(([, s]) => s.taskId !== id));
+      if (db.comments) { const { [id]: _c, ...keep } = db.comments; db.comments = keep; }
       log(`ลบ ${woNumber(t)}`, null);
       emit();
     },
