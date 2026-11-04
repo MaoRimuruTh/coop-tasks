@@ -1,8 +1,8 @@
 // Demo store: same interface as the Firebase store, but everything lives in this
 // browser (memory + localStorage). Used for the preview before Firebase is set up.
-import { addDays, stamp, stampS, dateKey, displayName, woNumber, ROLE_TH, shortTitle, canAssign, canReview, isInternAdmin, normCode, fmtTime, isStudent, isStaff, mentorLog, canChat, pairId } from './model.js';
+import { addDays, stamp, stampS, dateKey, displayName, woNumber, ROLE_TH, shortTitle, canAssign, canReview, isInternAdmin, normCode, fmtTime, isStudent, isStaff, mentorLog, toggleMentor, MAX_MENTORS, canChat, pairId, isActive, groupHasStaff, groupAutoName, MAX_GROUP } from './model.js';
 
-const KEY = 'coop-demo-v4';
+const KEY = 'coop-demo-v5';
 
 function svgPhoto(label, hue) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480">
@@ -21,13 +21,15 @@ function seed() {
   const msAgo = (min) => now.getTime() - min * 60000;
   const users = {
     'u-nat': { uid: 'u-nat', name: 'นพณัฐ พลเพชร', nickname: '', role: 'admin', isStudent: true,
-      studentId: '662091037', major: 'วิศวกรรมเมคคาทรอนิกส์', faculty: 'วิศวกรรมศาสตร์', email: '', mentor: 'u-ek' },
+      studentId: '662091037', major: 'วิศวกรรมเมคคาทรอนิกส์', faculty: 'วิศวกรรมศาสตร์', email: '', mentors: ['u-ek', 'u-oat'], mentor: 'u-ek' },
     'u-ton': { uid: 'u-ton', name: 'ศุภกร ใจดี', nickname: 'ต้น', role: 'student', isStudent: true,
       studentId: '662091052', major: 'วิศวกรรมเมคคาทรอนิกส์', faculty: 'วิศวกรรมศาสตร์', email: '', sample: true },
     'u-fah': { uid: 'u-fah', name: 'ณัฐธิดา แก้วมณี', nickname: 'ฟ้า', role: 'student', isStudent: true,
-      studentId: '662091088', major: 'วิศวกรรมเมคคาทรอนิกส์', faculty: 'วิศวกรรมศาสตร์', email: '', sample: true },
+      studentId: '662091088', major: 'วิศวกรรมเมคคาทรอนิกส์', faculty: 'วิศวกรรมศาสตร์', email: '', sample: true, mentors: ['u-oat'], mentor: 'u-oat' },
     'u-ek': { uid: 'u-ek', name: 'เอกชัย ศรีสุข', nickname: 'พี่เอก', role: 'supervisor', isStudent: false,
       position: 'วิศวกรฝ่ายผลิต', email: '', sample: true },
+    'u-oat': { uid: 'u-oat', name: 'โอภาส ทองดี', nickname: 'พี่โอ๊ต', role: 'supervisor', isStudent: false,
+      position: 'ช่างเทคนิคซ่อมบำรุง', email: '', sample: true },
     'u-new': { uid: 'u-new', name: 'วิทยา มั่นคง', nickname: 'วิท', role: 'pending', isStudent: false, email: 'witthaya@example.com', sample: true },
   };
   const plans = {
@@ -92,9 +94,16 @@ function seed() {
       companyAddress: '', companyPhone: '', companyFax: '', companyHours: 'จันทร์–ศุกร์ 08:00–17:00, เสาร์ 08:00–17:00',
       workDays: 'จันทร์–เสาร์', workStart: '08:00', workEnd: '18:00', breakStart: '12:00', breakEnd: '13:00' },
     users, plans, tasks, subs, files,
-    chats: { 'u-ek_u-nat': { id: 'u-ek_u-nat', members: ['u-ek', 'u-nat'], lastText: 'งานวัดชิ้นงานล็อต A ติดตรงไหนทักมาได้เลยนะ', lastBy: 'u-ek',
+    chats: { 'g-qc': { id: 'g-qc', kind: 'group', name: 'วัดชิ้นงานล็อต A', host: 'u-ek', createdBy: 'u-ek', members: ['u-ek', 'u-oat', 'u-nat', 'u-ton'],
+      lastText: 'พี่โอ๊ตครับ ฝากบอกพี่เอกว่าไมโครมิเตอร์ตัวที่ 2 อ่านค่าเพี้ยนครับ', lastBy: 'u-ton', lastAt: msAgo(12), seen: { 'u-ton': msAgo(12), 'u-ek': msAgo(30) } },
+      'u-ek_u-nat': { id: 'u-ek_u-nat', members: ['u-ek', 'u-nat'], lastText: 'งานวัดชิ้นงานล็อต A ติดตรงไหนทักมาได้เลยนะ', lastBy: 'u-ek',
       lastAt: msAgo(40), seen: { 'u-ek': msAgo(40), 'u-nat': msAt(-1, 17, 12) } } },
-    msgs: { 'u-ek_u-nat': [
+    msgs: { 'g-qc': [
+      { id: 'g1', by: 'u-ek', text: 'สร้างกลุ่ม “วัดชิ้นงานล็อต A”', sys: true, at: msAgo(90) },
+      { id: 'g2', by: 'u-ek', text: 'ล็อต A เหลืออีก 8 ชิ้น บ่ายนี้ช่วยกันวัดให้เสร็จนะ', at: msAgo(30) },
+      { id: 'g3', by: 'u-ton', text: 'พี่โอ๊ตครับ ฝากบอกพี่เอกว่าไมโครมิเตอร์ตัวที่ 2 อ่านค่าเพี้ยนครับ', at: msAgo(12) },
+    ],
+      'u-ek_u-nat': [
       { id: 'm1', by: 'u-ek', text: 'พรุ่งนี้เข้า 8 โมงตรงนะ เจอกันที่ห้อง QC', at: msAt(-1, 17, 10) },
       { id: 'm2', by: 'u-nat', text: 'รับทราบครับพี่', at: msAt(-1, 17, 12) },
       { id: 'm3', by: 'u-ek', text: 'งานวัดชิ้นงานล็อต A ติดตรงไหนทักมาได้เลยนะ', at: msAgo(40) },
@@ -146,16 +155,31 @@ export function createDemoStore() {
     },
     setActor(id) { db.actor = id; emit(); },
 
-    // พนักงานที่ปรึกษา: the intern picks, or a staff member takes the intern on / lets go
-    async setMentor(sid, mid) {
-      const st = db.users[sid]; const m = mid ? db.users[mid] : null; const self = sid === db.actor;
-      must(st && isStudent(st), 'พนักงานที่ปรึกษามีไว้สำหรับน้องฝึกงาน');
-      must(!mid || isStaff(m), 'พนักงานที่ปรึกษาต้องเป็นพนักงานของบริษัท');
-      must(self || me()?.role === 'admin' || (isStaff(me()) && (mid === db.actor || (!mid && st.mentor === db.actor))), 'พี่รับดูแลน้องได้ในนามของตัวเองเท่านั้น');
-      const text = mentorLog(db.users, db.actor, sid, mid || null);
-      db.users = { ...db.users, [sid]: { ...st, mentor: mid || null } };
+    // พี่ที่ดูแล: the intern (or the admin) sets the list and who signs; a staff member adds or removes only himself
+    async setMentors(sid, ids, sign) {
+      const st = db.users[sid];
+      must(st && isStudent(st), 'พี่ที่ดูแลมีไว้สำหรับน้องฝึกงาน');
+      must(sid === db.actor || me()?.role === 'admin', 'เลือกพี่ที่ดูแลได้เฉพาะของตัวเอง');
+      const next = [...new Set(ids || [])].filter(Boolean);
+      must(next.every((x) => isStaff(db.users[x])), 'พี่ที่ดูแลต้องเป็นพนักงานของบริษัท');
+      must(next.length <= MAX_MENTORS, `เลือกพี่ที่ดูแลได้ไม่เกิน ${MAX_MENTORS} คน`);
+      const signer = sign && next.includes(sign) ? sign : (next[0] || null);
+      const text = mentorLog(db.users, db.actor, sid, next, signer);
+      db.users = { ...db.users, [sid]: { ...st, mentors: next, mentor: signer } };
       log(text, null);
       emit();
+    },
+    async toggleMentee(sid) {
+      const st = db.users[sid];
+      must(st && isStudent(st), 'พี่ที่ดูแลมีไว้สำหรับน้องฝึกงาน');
+      must(isStaff(me()), 'รับดูแลน้องได้เฉพาะพนักงานของบริษัท');
+      const { next, sign, on } = toggleMentor(st, db.actor);
+      must(next.length <= MAX_MENTORS, `น้องคนนี้มีพี่ที่ดูแลครบ ${MAX_MENTORS} คนแล้ว`);
+      const text = mentorLog(db.users, db.actor, sid, next, sign);
+      db.users = { ...db.users, [sid]: { ...st, mentors: next, mentor: sign } };
+      log(text, null);
+      emit();
+      return on;
     },
     // private chat between one staff member and one intern
     subscribeChat(cid, cb) {
@@ -182,6 +206,59 @@ export function createDemoStore() {
       return Promise.resolve();
     },
     chatId: (otherId) => pairId(db.actor, otherId),
+    createGroup({ name, members }) {
+      const meId = db.actor;
+      const all = [...new Set([meId, ...(members || [])])].filter((x) => isActive(db.users[x]) || x === meId);
+      must(all.length >= 2, 'เลือกคนเข้ากลุ่มอย่างน้อย 1 คน');
+      must(all.length <= MAX_GROUP, `กลุ่มหนึ่งมีได้ไม่เกิน ${MAX_GROUP} คน`);
+      must(groupHasStaff(db.users, all), 'กลุ่มต้องมีพี่ผู้ดูแลอย่างน้อย 1 คน');
+      const host = isStaff(me()) ? meId : all.find((x) => isStaff(db.users[x]));
+      const nm = String(name || '').trim().slice(0, 60) || groupAutoName(db.users, all);
+      const id = uid('g'); const at = Date.now();
+      db.chats = { ...(db.chats || {}), [id]: { id, kind: 'group', name: nm, host, createdBy: meId, members: all,
+        lastText: `สร้างกลุ่ม “${nm}”`.slice(0, 140), lastBy: meId, lastAt: at, seen: { [meId]: at } } };
+      db.msgs = { ...(db.msgs || {}), [id]: [] };
+      emit();
+      return { id, done: Promise.resolve() };
+    },
+    sendGroup(cid, text) {
+      const body = String(text || '').trim();
+      must(body, 'พิมพ์ข้อความก่อน');
+      must(body.length <= 2000, 'ข้อความยาวเกิน 2,000 ตัวอักษร แบ่งส่งเป็นหลายข้อความ');
+      const c = (db.chats || {})[cid];
+      must(c && c.members.includes(db.actor), 'คุณไม่ได้อยู่ในกลุ่มนี้แล้ว');
+      const at = Date.now();
+      db.chats = { ...db.chats, [cid]: { ...c, lastText: body.slice(0, 140), lastBy: db.actor, lastAt: at, seen: { ...c.seen, [db.actor]: at } } };
+      db.msgs = { ...(db.msgs || {}), [cid]: [...((db.msgs || {})[cid] || []), { id: uid('m'), by: db.actor, text: body, at }] };
+      emit();
+      return Promise.resolve();
+    },
+    async updateGroup(cid, { name, members }, note) {
+      const c = (db.chats || {})[cid];
+      must(c && c.kind === 'group' && c.members.includes(db.actor), 'คุณไม่ได้อยู่ในกลุ่มนี้แล้ว');
+      must(isStaff(me()), 'แก้กลุ่มได้เฉพาะพี่ผู้ดูแลที่อยู่ในกลุ่ม');
+      const all = [...new Set([db.actor, ...(members || c.members)])];
+      must(all.length >= 2, 'กลุ่มต้องมีอย่างน้อย 2 คน');
+      must(all.length <= MAX_GROUP, `กลุ่มหนึ่งมีได้ไม่เกิน ${MAX_GROUP} คน`);
+      const nm = String(name || '').trim().slice(0, 60) || c.name;
+      const text = String(note || 'แก้ไขกลุ่ม').slice(0, 140); const at = Date.now();
+      db.chats = { ...db.chats, [cid]: { ...c, name: nm, members: all, host: all.includes(c.host) ? c.host : db.actor,
+        lastText: text, lastBy: db.actor, lastAt: at, seen: { ...c.seen, [db.actor]: at } } };
+      db.msgs = { ...(db.msgs || {}), [cid]: [...((db.msgs || {})[cid] || []), { id: uid('m'), by: db.actor, text, sys: true, at }] };
+      emit();
+    },
+    async leaveGroup(cid) {
+      const c = (db.chats || {})[cid];
+      must(c && c.kind === 'group' && c.members.includes(db.actor), 'คุณไม่ได้อยู่ในกลุ่มนี้แล้ว');
+      const rest = c.members.filter((x) => x !== db.actor);
+      let { host } = c;
+      if (host === db.actor) {
+        host = rest.find((x) => isStaff(db.users[x]));
+        must(host, 'กลุ่มต้องมีพี่ผู้ดูแลอย่างน้อย 1 คน เพิ่มพี่อีกคนก่อนออก');
+      }
+      db.chats = { ...db.chats, [cid]: { ...c, members: rest, host, lastText: 'ออกจากกลุ่ม', lastBy: db.actor, lastAt: Date.now() } };
+      emit();
+    },
     reset() { db = seed(); emit(); },
 
     async createTask(input) {

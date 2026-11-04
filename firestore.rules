@@ -43,8 +43,22 @@ service cloud.firestore {
     // company staff (supervisors, admins who are not interns) and interns, read from a user document
     function staffDoc(d) { return d.role == 'supervisor' || (d.role == 'admin' && d.get('isStudent', false) == false); }
     function internDoc(d) { return d.role == 'student' || (d.role == 'admin' && d.get('isStudent', false) == true); }
-    // an intern's พนักงานที่ปรึกษา: nobody, or a staff member
-    function okMentor(m) { return m == null || m == '' || (m is string && exists(userPath(m)) && staffDoc(get(userPath(m)).data)); }
+    // an intern's พี่ที่ดูแล: up to five staff members, checked one by one (rules have no loops);
+    // `mentor` is the one who signs the university form and must be one of them
+    function staffAt(l, i) { return l.size() <= i || (l[i] is string && exists(userPath(l[i])) && staffDoc(get(userPath(l[i])).data)); }
+    function okMentors(l) { return l is list && l.size() <= 5 && staffAt(l, 0) && staffAt(l, 1) && staffAt(l, 2) && staffAt(l, 3) && staffAt(l, 4); }
+    function okSigner(d) {
+      return d.get('mentor', null) == null || d.get('mentor', null) == '' || d.get('mentor', null) in d.get('mentors', []);
+    }
+    // older records kept a single `mentor`
+    function mentorsOf(d) {
+      return d.get('mentors', d.get('mentor', null) is string && d.get('mentor', '') != '' ? [d.get('mentor', '')] : []);
+    }
+    function mentorsChange(a, b) {
+      let x = mentorsOf(a).toSet();
+      let y = b.get('mentors', []).toSet();
+      return x.difference(y).union(y.difference(x));
+    }
     // a private chat is always one staff member and one intern
     function chatPair(a, b) {
       let ua = get(userPath(a)).data;
@@ -67,17 +81,21 @@ service cloud.firestore {
             && !exists(/databases/$(database)/documents/meta/admin)
             && getAfter(/databases/$(database)/documents/meta/admin).data.uid == request.auth.uid
             && onlyChanged(['role', 'isStudent']) && request.resource.data.role == 'admin')
-        // people may edit their own profile details, never their role; an intern also picks their พนักงานที่ปรึกษา
+        // people may edit their own profile details, never their role; an intern also picks their พี่ที่ดูแล
         || (signedIn() && request.auth.uid == uid && approved()
-            && onlyChanged(['name', 'nickname', 'studentId', 'major', 'faculty', 'position', 'mentor'])
-            && (!changed().hasAny(['mentor'])
-                || (internDoc(resource.data) && okMentor(request.resource.data.get('mentor', null)))))
-        // a supervisor takes an intern on (mentor = themselves), or lets go of an intern they look after
+            && onlyChanged(['name', 'nickname', 'studentId', 'major', 'faculty', 'position', 'mentor', 'mentors'])
+            && (!changed().hasAny(['mentor', 'mentors'])
+                || (internDoc(resource.data) && okMentors(request.resource.data.get('mentors', [])) && okSigner(request.resource.data))))
+        // a supervisor adds or removes only himself among an intern's พี่ที่ดูแล; he may pick who signs
+        // only when nobody does yet, or when he was the one signing
         || (role() == 'supervisor' && uid != request.auth.uid && internDoc(resource.data)
-            && onlyChanged(['mentor'])
-            && (request.resource.data.get('mentor', null) == request.auth.uid
-                || (resource.data.get('mentor', null) == request.auth.uid
-                    && (request.resource.data.get('mentor', null) == null || request.resource.data.get('mentor', null) == ''))))
+            && onlyChanged(['mentor', 'mentors'])
+            && request.resource.data.get('mentors', []) is list && request.resource.data.get('mentors', []).size() <= 5
+            && mentorsChange(resource.data, request.resource.data).hasOnly([request.auth.uid])
+            && okSigner(request.resource.data)
+            && (!changed().hasAny(['mentor'])
+                || resource.data.get('mentor', null) == null || resource.data.get('mentor', null) == ''
+                || resource.data.get('mentor', null) == request.auth.uid))
         // an intern-admin opens assigner mode for up to an hour by spending a fresh one-time code in the same batch
         || (signedIn() && request.auth.uid == uid && internAdmin()
             && onlyChanged(['assignerUntil', 'lastUnlock'])
@@ -196,10 +214,29 @@ service cloud.firestore {
       allow update: if false;
     }
 
-    // private chat between one staff member and one intern: only the two of them can read or write it (the admin too is shut out)
+    // chats: a pair chat (one staff member + one intern, id "<uidA>_<uidB>") or a group (an auto id, with a staff host);
+    // only the people in a chat can read or write it, the admin too is shut out
+    function chatPath(cid) { return /databases/$(database)/documents/chats/$(cid); }
+    function chatLine() {
+      return request.resource.data.lastBy == request.auth.uid && request.resource.data.lastAt == request.time
+        && request.resource.data.lastText is string && request.resource.data.lastText.size() <= 140;
+    }
+    // a new message line, and "seen" moved by its owner only
+    function chatSummaryOk() {
+      return (!changed().hasAny(['lastAt', 'lastText', 'lastBy']) || chatLine())
+        && request.resource.data.seen.diff(resource.data.seen).affectedKeys().hasOnly([request.auth.uid])
+        && (!request.resource.data.seen.diff(resource.data.seen).affectedKeys().hasAny([request.auth.uid])
+            || request.resource.data.seen[request.auth.uid] == request.time);
+    }
+    function groupShapeOk(d) {
+      return d.name is string && d.name.size() > 0 && d.name.size() <= 60
+        && d.members is list && d.members.size() >= 2 && d.members.size() <= 20
+        && d.host in d.members;
+    }
     match /chats/{cid} {
-      allow get: if approved() && request.auth.uid in cid.split('_');
+      allow get: if approved() && (request.auth.uid in cid.split('_') || request.auth.uid in resource.data.members);
       allow list: if approved() && request.auth.uid in resource.data.members;
+      // pair: one staff member and one intern
       allow create: if approved()
         && request.resource.data.keys().hasOnly(['members', 'lastAt', 'lastText', 'lastBy', 'seen'])
         && request.resource.data.members is list && request.resource.data.members.size() == 2
@@ -207,28 +244,45 @@ service cloud.firestore {
         && request.resource.data.members[0] < request.resource.data.members[1]
         && cid == request.resource.data.members[0] + '_' + request.resource.data.members[1]
         && chatPair(request.resource.data.members[0], request.resource.data.members[1])
-        && request.resource.data.lastBy == request.auth.uid
-        && request.resource.data.lastAt == request.time
-        && request.resource.data.lastText is string && request.resource.data.lastText.size() <= 140
+        && chatLine()
         && request.resource.data.seen.keys().hasOnly([request.auth.uid]);
-      allow update: if approved() && request.auth.uid in resource.data.members
-        && onlyChanged(['lastAt', 'lastText', 'lastBy', 'seen'])
-        && (!changed().hasAny(['lastAt', 'lastText', 'lastBy'])
-            || (request.resource.data.lastBy == request.auth.uid && request.resource.data.lastAt == request.time
-                && request.resource.data.lastText is string && request.resource.data.lastText.size() <= 140))
-        && request.resource.data.seen.diff(resource.data.seen).affectedKeys().hasOnly([request.auth.uid])
-        && (!request.resource.data.seen.diff(resource.data.seen).affectedKeys().hasAny([request.auth.uid])
-            || request.resource.data.seen[request.auth.uid] == request.time);
+      // group: anyone starts one, as long as a staff member (the host) is in it; never an id that looks like a pair
+      allow create: if approved() && !cid.matches('.*_.*')
+        && request.resource.data.keys().hasOnly(['kind', 'name', 'host', 'createdBy', 'members', 'lastAt', 'lastText', 'lastBy', 'seen'])
+        && request.resource.data.kind == 'group'
+        && groupShapeOk(request.resource.data)
+        && request.auth.uid in request.resource.data.members
+        && request.resource.data.createdBy == request.auth.uid
+        && staffDoc(get(userPath(request.resource.data.host)).data)
+        && chatLine()
+        && request.resource.data.seen.keys().hasOnly([request.auth.uid]);
+      allow update: if approved() && request.auth.uid in resource.data.members && (
+        // a new message line and "seen"
+        (onlyChanged(['lastAt', 'lastText', 'lastBy', 'seen']) && chatSummaryOk())
+        // staff in a group: rename, add or remove people, take over or hand over the host (to another staff member)
+        || (resource.data.get('kind', 'pair') == 'group' && staffDoc(profile())
+            && onlyChanged(['name', 'members', 'host', 'lastAt', 'lastText', 'lastBy', 'seen']) && chatSummaryOk()
+            && groupShapeOk(request.resource.data)
+            && (request.resource.data.host == resource.data.host || request.resource.data.host == request.auth.uid
+                || staffDoc(get(userPath(request.resource.data.host)).data)))
+        // anyone but the host leaves a group
+        || (resource.data.get('kind', 'pair') == 'group' && request.auth.uid != resource.data.host
+            && onlyChanged(['members', 'lastAt', 'lastText', 'lastBy'])
+            && resource.data.members.toSet().difference(request.resource.data.members.toSet()).hasOnly([request.auth.uid])
+            && request.resource.data.members.toSet().difference(resource.data.members.toSet()).size() == 0
+            && (!changed().hasAny(['lastAt', 'lastText', 'lastBy']) || chatLine())));
       allow delete: if false;
 
       match /msgs/{mid} {
-        allow read: if approved() && request.auth.uid in cid.split('_');
+        allow read: if approved()
+          && (request.auth.uid in cid.split('_') || request.auth.uid in get(chatPath(cid)).data.members);
         allow create: if approved()
-          && request.auth.uid in getAfter(/databases/$(database)/documents/chats/$(cid)).data.members
-          && request.resource.data.keys().hasOnly(['by', 'text', 'at'])
+          && request.auth.uid in getAfter(chatPath(cid)).data.members
+          && request.resource.data.keys().hasOnly(['by', 'text', 'at', 'sys'])
           && request.resource.data.by == request.auth.uid
           && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000
-          && request.resource.data.at == request.time;
+          && request.resource.data.at == request.time
+          && request.resource.data.get('sys', false) is bool;
         allow update, delete: if false;
       }
     }

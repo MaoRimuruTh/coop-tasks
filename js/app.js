@@ -98,14 +98,17 @@ function App({ store }) {
     if (!prev) return;
     const here = readHash();
     chats.filter((c) => (c.lastAt || 0) > (prev[c.id] || 0) && isUnread(c, db.me.uid)).forEach((c) => {
-      const other = otherOf(c, db.me.uid);
-      if (here === 'chat' || here === `chat-${other}`) return;
-      toast(`${displayName((db.users || {})[other])}: ${c.lastText}`, 'info', { label: 'เปิดแชท', run: () => { location.hash = `chat-${other}`; } }, `chat-${other}`);
+      const users = db.users || {};
+      const group = c.kind === 'group';
+      const where = group ? `chatg-${c.id}` : `chat-${otherOf(c, db.me.uid)}`;
+      if (here === 'chat' || here === where) return;
+      const text = group ? `${c.name} · ${displayName(users[c.lastBy])}: ${c.lastText}` : `${displayName(users[c.lastBy])}: ${c.lastText}`;
+      toast(text, 'info', { label: 'เปิดแชท', run: () => { location.hash = where; } }, where);
     });
   }, [db.chats, db.chatsLoaded]);
   // opening the chat (or the chat list) clears its message toast
   useEffect(() => {
-    if (route === 'chat' || route.startsWith('chat-')) setToasts((x) => x.filter((t) => !t.key || (route !== 'chat' && t.key !== route)));
+    if (route === 'chat' || /^chatg?-/.test(route)) setToasts((x) => x.filter((t) => !t.key || (route !== 'chat' && t.key !== route)));
   }, [route]);
 
   const me = db.me;
@@ -129,7 +132,7 @@ function App({ store }) {
   const assignerOn = isInternAdmin(me) && assignerOpen(me, now);
   const lockNow = async () => { try { await store.lockAssigner(); toast('ล็อกโหมดผู้มอบงานแล้ว'); } catch (ex) { toast(ex.message, 'bad'); } };
   const woMatch = /^wo-(\d+)$/.exec(route);
-  let tab = woMatch ? (lastTab.current || tabs[0].id) : /^chat-./.test(route) ? 'chat' : route;
+  let tab = woMatch ? (lastTab.current || tabs[0].id) : /^chatg?-./.test(route) ? 'chat' : route;
   if (!tabs.some((t) => t.id === tab)) tab = tabs[0].id;
   if (!woMatch) lastTab.current = tab;
   const openTask = (no) => { location.hash = `wo-${no}`; };

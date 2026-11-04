@@ -215,22 +215,49 @@ export function formRows(plans, uid) {
 /** Company staff: supervisors, and admins who are not interns. They can be an intern's พนักงานที่ปรึกษา. */
 export const isStaff = (u) => !!u && (u.role === 'supervisor' || (u.role === 'admin' && !u.isStudent));
 
-/** The intern's own พนักงานที่ปรึกษา: the one they (or that supervisor) picked; with a single supervisor, that one. */
+/** All the พี่ who look after an intern (records from before kept a single `mentor`). */
+export const mentorsOf = (u) => (!u ? [] : Array.isArray(u.mentors) ? u.mentors : (u.mentor ? [u.mentor] : []));
+export const MAX_MENTORS = 5;
+
+/** The พี่ who signs the intern's university form: the one marked to sign, else the first พี่ที่ดูแล;
+ *  with nobody picked and a single supervisor in the team, that supervisor. */
 export const mentorOf = (users, student) => {
-  const m = student && student.mentor && users[student.mentor];
-  if (isStaff(m)) return m;
+  const ids = mentorsOf(student).filter((id) => isStaff(users[id]));
+  const id = student && ids.includes(student.mentor) ? student.mentor : ids[0];
+  if (id) return users[id];
   const sups = Object.values(users || {}).filter((u) => u.role === 'supervisor');
   return sups.length === 1 ? sups[0] : null;
 };
 
-/** Activity text for a change of พนักงานที่ปรึกษา (the feed puts the actor's name in front). */
-export function mentorLog(users, actorId, studentId, mentorId) {
-  const st = users[studentId] || {}; const before = st.mentor || null;
-  const s = displayName(st); const m = mentorId ? displayName(users[mentorId]) : '';
-  if (actorId === studentId) return mentorId ? `เลือก ${m} เป็นพนักงานที่ปรึกษา` : 'ยกเลิกพนักงานที่ปรึกษาที่เลือกไว้';
-  if (mentorId && mentorId === actorId) return before && before !== actorId ? `รับดูแล ${s} แทน ${displayName(users[before])}` : `รับดูแล ${s}`;
-  if (!mentorId) return before === actorId ? `เลิกดูแล ${s}` : `ยกเลิกพนักงานที่ปรึกษาของ ${s}`;
-  return `ตั้ง ${m} เป็นพนักงานที่ปรึกษาของ ${s}`;
+/** A staff member adds or removes only himself; who signs the form follows along. */
+export function toggleMentor(student, staffId) {
+  const before = mentorsOf(student);
+  const on = before.includes(staffId);
+  const next = on ? before.filter((x) => x !== staffId) : [...before, staffId];
+  let sign = student.mentor && before.includes(student.mentor) ? student.mentor : (before[0] || null);
+  if (on && sign === staffId) sign = next[0] || null;
+  if (!on && !sign) sign = staffId;
+  return { next, sign, on: !on };
+}
+
+/** Activity text for a change of พี่ที่ดูแล (the feed puts the actor's name in front). */
+export function mentorLog(users, actorId, studentId, nextIds, nextSign) {
+  const st = users[studentId] || {};
+  const before = mentorsOf(st);
+  const added = nextIds.filter((x) => !before.includes(x));
+  const removed = before.filter((x) => !nextIds.includes(x));
+  const name = (id) => displayName(users[id]);
+  const s = displayName(st);
+  const parts = [];
+  if (actorId === studentId) {
+    if (added.length) parts.push(`เลือก ${added.map(name).join(', ')} เป็นพี่ที่ดูแล`);
+    if (removed.length) parts.push(`เอา ${removed.map(name).join(', ')} ออกจากพี่ที่ดูแล`);
+  } else if (added.length === 1 && added[0] === actorId && !removed.length) parts.push(`รับดูแล ${s}`);
+  else if (removed.length === 1 && removed[0] === actorId && !added.length) parts.push(`เลิกดูแล ${s}`);
+  else if (added.length || removed.length) parts.push(`ตั้งพี่ที่ดูแล ${s}: ${nextIds.map(name).join(', ') || 'ไม่มี'}`);
+  const signBefore = st.mentor && before.includes(st.mentor) ? st.mentor : (before[0] || null);
+  if (nextSign && nextSign !== signBefore && nextIds.length > 1) parts.push(`ให้ ${name(nextSign)} ลงชื่อในฟอร์มมหาลัย${actorId === studentId ? '' : `ของ ${s}`}`);
+  return parts.join(' · ') || 'บันทึกพี่ที่ดูแล';
 }
 
 // ---------- private chat: one staff member and one intern ----------
@@ -239,6 +266,12 @@ const ACTIVE = ['admin', 'supervisor', 'student'];
 export const canChat = (a, b) => !!a && !!b && a.uid !== b.uid && ACTIVE.includes(a.role) && ACTIVE.includes(b.role)
   && ((isStaff(a) && isStudent(b)) || (isStudent(a) && isStaff(b)));
 export const chatPeople = (users, me) => Object.values(users || {}).filter((u) => canChat(me, u));
+export const isActive = (u) => !!u && ACTIVE.includes(u.role);
+/** Who can be put in a group: anyone active; a group always has at least one staff member in it. */
+export const groupPeople = (users, me) => Object.values(users || {}).filter((u) => u.uid !== me.uid && isActive(u));
+export const groupHasStaff = (users, ids) => ids.some((id) => isStaff(users[id]));
+export const MAX_GROUP = 20;
+export const groupAutoName = (users, ids) => ids.map((id) => displayName(users[id])).join(', ').slice(0, 60);
 export const pairId = (a, b) => [a, b].sort().join('_');
 export const otherOf = (chat, uid) => (chat.members || []).find((x) => x !== uid);
 export const isUnread = (chat, uid) => !!chat && (chat.members || []).includes(uid) && !!chat.lastBy && chat.lastBy !== uid

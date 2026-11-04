@@ -675,6 +675,18 @@ button.g-title:hover { text-decoration: underline; text-underline-offset: 3px; }
 .chat-row.is-unread .chat-row-last { color: var(--ink); font-weight: 600; }
 .chat-row-meta { flex: none; align-self: stretch; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 8px; font: 500 12px/1 var(--f-mono); color: var(--ink-3); }
 .chat-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--stop); }
+.chat-count { font: 500 12px/1 var(--f-mono); color: var(--ink-3); }
+.chat-start { display: flex; flex-direction: column; gap: 8px; }
+.chat-section-title { font-size: 14px; font-weight: 700; color: var(--ink-2); }
+.avatar--group { border-radius: 10px; background: var(--signal); color: var(--signal-ink); }
+.thread-more { margin-left: auto; }
+.thread-sys { align-self: center; max-width: 92%; text-align: center; font-size: 12.5px; color: var(--ink-3); line-height: 1.5; margin: 4px 0; }
+.thread-sys span { background: var(--surface-2); padding: 3px 10px; border-radius: 999px; display: inline-block; }
+.bubble-who { font-size: 12px; font-weight: 700; color: var(--ink-2); }
+.member-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.member-list li { display: flex; align-items: center; gap: 10px; }
+.member-list small { margin-left: auto; color: var(--ink-3); font-size: 12.5px; }
+.hint-line--warn { color: var(--stop-ink); font-weight: 600; }
 .page--thread { gap: 10px; min-height: calc(100dvh - var(--top-h) - var(--nav-h) - 120px); }
 .thread-head { display: flex; align-items: center; gap: 10px; margin-left: -10px; }
 .thread-who { display: flex; flex-direction: column; min-width: 0; line-height: 1.4; }
@@ -708,7 +720,7 @@ button.g-title:hover { text-decoration: underline; text-underline-offset: 3px; }
 .callout--row { display: flex; align-items: center; justify-content: space-between; gap: 10px 14px; flex-wrap: wrap; flex-direction: row; }
 .chip-note { display: block; font-size: 11px; font-weight: 400; color: var(--ink-3); line-height: 1.2; }
 .chip.is-on .chip-note { color: inherit; }
-.chip .icon { vertical-align: -3px; margin-right: 4px; }
+.chip .icon { display: inline-block; vertical-align: -3px; margin-right: 4px; }
 
 /* ---------- university form (mirrors the paper original) ---------- */
 .form-tools { display: flex; flex-direction: column; gap: 10px; }

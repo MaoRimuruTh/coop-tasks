@@ -3,7 +3,7 @@
 // and the answers are laid on top at the spots measured from that PDF, so the print is the real form.
 import { html, useState, useRef, useEffect, useLayoutEffect } from '../vendor/preact-htm.js';
 import { useApp } from '../ctx.js';
-import { formRows, fmtDateYear, canAssign, displayName, mentorOf, isStaff } from '../model.js';
+import { formRows, fmtDateYear, canAssign, displayName, mentorOf, mentorsOf, isStaff } from '../model.js';
 import { Icon } from '../ui.js';
 
 const ROWS = 14;
@@ -61,8 +61,9 @@ export function UniForm() {
   const shown = rows.slice(0, ROWS);
   const mentor = mentorOf(db.users, student);
   const canPrint = store.mode !== 'demo';
+  const picked = mentorsOf(student).filter((id) => isStaff(db.users[id]));
   const takeOn = async () => {
-    try { await store.setMentor(student.uid, me.uid); toast(`รับดูแล ${displayName(student)} แล้ว ชื่อเราจะลงในฟอร์มของน้อง`, 'ok'); } catch (ex) { toast(ex.message, 'bad'); }
+    try { await store.toggleMentee(student.uid); toast(`รับดูแล ${displayName(student)} แล้ว ชื่อเราจะลงในฟอร์มของน้อง`, 'ok'); } catch (ex) { toast(ex.message, 'bad'); }
   };
   const scrollRef = useRef();
   const paperRef = useRef();
@@ -96,8 +97,10 @@ export function UniForm() {
       ${!mentor && student.uid === me.uid ? html`<p class="hint-line">ยังไม่ได้เลือกพนักงานที่ปรึกษาของเรา ช่องชื่อพี่จะเว้นว่างไว้
         <button type="button" class="link-btn link-btn--inline" onClick=${openProfile}>เลือกพี่ที่ดูแล</button></p>` : ''}
       ${!mentor && student.uid !== me.uid && !isStaff(me) ? html`<p class="hint-line">${displayName(student)} ยังไม่ได้เลือกพนักงานที่ปรึกษา ช่องชื่อพี่จะเว้นว่างไว้</p>` : ''}
-      ${isStaff(me) && student.uid !== me.uid && !student.mentor && (!mentor || mentor.uid !== me.uid) ? html`<p class="hint-line">${mentor ? `ตอนนี้ฟอร์มใส่ชื่อ ${displayName(mentor)} ไว้ก่อน (มีพี่คนเดียวในระบบ)` : `${displayName(student)} ยังไม่มีพนักงานที่ปรึกษา ช่องชื่อพี่จะเว้นว่างไว้`}
-        <button type="button" class="link-btn link-btn--inline" onClick=${takeOn}>ฉันเป็นพนักงานที่ปรึกษาของ${displayName(student)}</button></p>` : ''}
+      ${isStaff(me) && student.uid !== me.uid && picked.length === 0 && (!mentor || mentor.uid !== me.uid) ? html`<p class="hint-line">${mentor ? `ตอนนี้ฟอร์มใส่ชื่อ ${displayName(mentor)} ไว้ก่อน (มีพี่คนเดียวในระบบ)` : `${displayName(student)} ยังไม่มีพนักงานที่ปรึกษา ช่องชื่อพี่จะเว้นว่างไว้`}
+        <button type="button" class="link-btn link-btn--inline" onClick=${takeOn}>ฉันเป็นพี่ที่ดูแล${displayName(student)}</button></p>` : ''}
+      ${picked.length > 1 && mentor ? html`<p class="hint-line">พี่ที่ดูแล ${picked.map((id) => displayName(db.users[id])).join(', ')} · ลงชื่อในฟอร์ม: <b>${displayName(mentor)}</b>${student.uid === me.uid
+        ? html`<button type="button" class="link-btn link-btn--inline" onClick=${openProfile}>เปลี่ยนคนลงชื่อ</button>` : ''}</p>` : ''}
       ${!canPrint ? html`<p class="hint-line">หน้าตัวอย่างนี้สั่งพิมพ์ไม่ได้ ในเว็บจริงจะมีปุ่ม “พิมพ์ / บันทึกเป็น PDF” ตรงนี้</p>` : ''}
       <p class="hint-line">เดือนที่ในฟอร์ม = ช่วงละ 4 สัปดาห์ ${cal.months.map((m) => `· เดือนที่ ${m.m} = ${fmtDateYear(m.from)} – ${fmtDateYear(m.to)}`).join(' ')}</p>
     </div>

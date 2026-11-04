@@ -1,7 +1,7 @@
 // Firebase store: same interface as store-demo.js, backed by Firestore + Google sign-in.
 // Free Spark plan only: photos are shrunk on the phone and stored as Firestore documents
 // (Cloud Storage would need the paid Blaze plan).
-import { stampS, woNumber, displayName, ROLE_TH, shortTitle, canAssign, canReview, isInternAdmin, normCode, fmtTime, isStudent, isStaff, mentorLog, canChat, pairId } from './model.js';
+import { stampS, woNumber, displayName, ROLE_TH, shortTitle, canAssign, canReview, isInternAdmin, normCode, fmtTime, isStudent, isStaff, mentorLog, mentorsOf, toggleMentor, MAX_MENTORS, canChat, pairId, isActive, groupHasStaff, groupAutoName, MAX_GROUP } from './model.js';
 
 const SDK = 'https://www.gstatic.com/firebasejs/10.14.1';
 const DEFAULT_SETTINGS = { startDate: '2026-11-02', endDate: '2027-02-19', company: '', university: 'มหาวิทยาลัยทักษิณ',
@@ -98,10 +98,11 @@ export async function createFirebaseStore(config) {
     listen(doc(fs, 'settings', 'app'), (d) => { S.settings = d.exists() ? d.data() : {}; emit(); });
     listen(query(collection(fs, 'activity'), orderBy('at', 'desc'), limit(60)), (qs) => { S.activity = qs.docs.map((d) => d.data()); emit(); });
     // my private chats only (the rules let nobody else read them); a failure here never restarts the other listeners
-    keep(onSnapshot(query(collection(fs, 'chats'), where('members', 'array-contains', S.me.uid)), (qs) => {
+    keep(onSnapshot(query(collection(fs, 'chats'), where('members', 'array-contains', S.me.uid)), { includeMetadataChanges: true }, (qs) => {
       S.chats = Object.fromEntries(qs.docs.map((d) => {
         const x = d.data({ serverTimestamps: 'estimate' });
-        return [d.id, { id: d.id, members: x.members || [], lastText: x.lastText || '', lastBy: x.lastBy || null, lastAt: ms(x.lastAt),
+        return [d.id, { id: d.id, pending: d.metadata.hasPendingWrites, kind: x.kind || 'pair', name: x.name || '', host: x.host || null, createdBy: x.createdBy || null,
+          members: x.members || [], lastText: x.lastText || '', lastBy: x.lastBy || null, lastAt: ms(x.lastAt),
           seen: Object.fromEntries(Object.entries(x.seen || {}).map(([k, v]) => [k, ms(v)])) }];
       }));
       S.chatOff = false; S.chatsLoaded = true; emit();
@@ -354,25 +355,53 @@ export async function createFirebaseStore(config) {
       logIn(b, 'ล็อกโหมดผู้มอบงาน');
       await b.commit();
     }),
-    // พนักงานที่ปรึกษา: the intern picks their own, or a staff member takes the intern on (or lets go)
-    setMentor: wrap(async (sid, mid) => {
-      const st = S.users[sid]; const m = mid ? S.users[mid] : null; const self = sid === uid();
-      must(st && isStudent(st), 'พนักงานที่ปรึกษามีไว้สำหรับน้องฝึกงาน');
-      must(!mid || isStaff(m), 'พนักงานที่ปรึกษาต้องเป็นพนักงานของบริษัท');
-      must(self || role() === 'admin' || (isStaff(S.me) && (mid === uid() || (!mid && st.mentor === uid()))), 'พี่รับดูแลน้องได้ในนามของตัวเองเท่านั้น');
+    // พี่ที่ดูแล: the intern (or the admin) sets the whole list and who signs the form;
+    // a staff member adds or removes only himself (toggleMentee)
+    setMentors: wrap(async (sid, ids, sign) => {
+      const st = S.users[sid];
+      must(st && isStudent(st), 'พี่ที่ดูแลมีไว้สำหรับน้องฝึกงาน');
+      must(sid === uid() || role() === 'admin', 'เลือกพี่ที่ดูแลได้เฉพาะของตัวเอง');
+      const next = [...new Set(ids || [])].filter(Boolean);
+      must(next.every((x) => isStaff(S.users[x])), 'พี่ที่ดูแลต้องเป็นพนักงานของบริษัท');
+      must(next.length <= MAX_MENTORS, `เลือกพี่ที่ดูแลได้ไม่เกิน ${MAX_MENTORS} คน`);
+      const signer = sign && next.includes(sign) ? sign : (next[0] || null);
       const b = writeBatch(fs);
-      b.update(doc(fs, 'users', sid), { mentor: mid || null });
-      logIn(b, mentorLog(S.users, uid(), sid, mid || null));
+      b.update(doc(fs, 'users', sid), { mentors: next, mentor: signer });
+      logIn(b, mentorLog(S.users, uid(), sid, next, signer));
       await b.commit();
+    }),
+    toggleMentee: wrap(async (sid) => {
+      const st = S.users[sid];
+      must(st && isStudent(st), 'พี่ที่ดูแลมีไว้สำหรับน้องฝึกงาน');
+      must(isStaff(S.me), 'รับดูแลน้องได้เฉพาะพนักงานของบริษัท');
+      const { next, sign, on } = toggleMentor(st, uid());
+      must(next.length <= MAX_MENTORS, `น้องคนนี้มีพี่ที่ดูแลครบ ${MAX_MENTORS} คนแล้ว`);
+      const b = writeBatch(fs);
+      b.update(doc(fs, 'users', sid), { mentors: next, mentor: sign });
+      logIn(b, mentorLog(S.users, uid(), sid, next, sign));
+      await b.commit();
+      return on;
     }),
 
     // private chat: chats/{a_b} holds the members and the last message, chats/{a_b}/msgs the messages
     subscribeChat(cid, cb) {
       const q = query(collection(fs, 'chats', cid, 'msgs'), orderBy('at'), limitToLast(300));
-      return onSnapshot(q, { includeMetadataChanges: true }, (qs) => cb(qs.docs.map((d) => {
-        const x = d.data({ serverTimestamps: 'estimate' });
-        return { id: d.id, by: x.by, text: x.text, at: ms(x.at), pending: d.metadata.hasPendingWrites };
-      })), (e) => cb(null, thaiError(e)));
+      let unsub = null; let timer = null; let tries = 0; let stopped = false;
+      const start = () => {
+        unsub = onSnapshot(q, { includeMetadataChanges: true }, (qs) => {
+          tries = 0;
+          cb(qs.docs.map((d) => {
+            const x = d.data({ serverTimestamps: 'estimate' });
+            return { id: d.id, by: x.by, text: x.text, sys: !!x.sys, at: ms(x.at), pending: d.metadata.hasPendingWrites };
+          }));
+        }, (e) => {
+          // a group made a moment ago may not have reached the server yet: look again shortly
+          if (!stopped && String((e && e.code) || '').includes('permission') && tries < 6) { tries += 1; timer = setTimeout(start, 400 * tries); return; }
+          cb(null, thaiError(e));
+        });
+      };
+      start();
+      return () => { stopped = true; clearTimeout(timer); if (unsub) unsub(); };
     },
     // no await on the server: offline, the message waits in the phone and goes out when the line is back
     sendChat(otherId, text) {
@@ -390,6 +419,60 @@ export async function createFirebaseStore(config) {
       return updateDoc(doc(fs, 'chats', cid), { [`seen.${uid()}`]: serverTimestamp() }).catch((e) => console.warn('seen:', e && e.code));
     },
     chatId: (otherId) => pairId(uid(), otherId),
+
+    // group chats: chats/{autoId} with a name, a host (a staff member who must stay in) and up to 20 people
+    createGroup({ name, members }) {
+      const me = uid();
+      const all = [...new Set([me, ...(members || [])])].filter((x) => isActive(S.users[x]) || x === me);
+      must(all.length >= 2, 'เลือกคนเข้ากลุ่มอย่างน้อย 1 คน');
+      must(all.length <= MAX_GROUP, `กลุ่มหนึ่งมีได้ไม่เกิน ${MAX_GROUP} คน`);
+      must(groupHasStaff(S.users, all), 'กลุ่มต้องมีพี่ผู้ดูแลอย่างน้อย 1 คน');
+      const host = isStaff(S.me) ? me : all.find((x) => isStaff(S.users[x]));
+      const nm = String(name || '').trim().slice(0, 60) || groupAutoName(S.users, all);
+      const ref = doc(collection(fs, 'chats'));
+      const done = setDoc(ref, { kind: 'group', name: nm, host, createdBy: me, members: all,
+        lastAt: serverTimestamp(), lastText: `สร้างกลุ่ม “${nm}”`.slice(0, 140), lastBy: me, seen: { [me]: serverTimestamp() } }).catch((e) => { throw thaiError(e); });
+      return { id: ref.id, done };
+    },
+    sendGroup(cid, text) {
+      const body = String(text || '').trim();
+      must(body, 'พิมพ์ข้อความก่อน');
+      must(body.length <= 2000, 'ข้อความยาวเกิน 2,000 ตัวอักษร แบ่งส่งเป็นหลายข้อความ');
+      const c = S.chats[cid]; const me = uid();
+      must(c && c.members.includes(me), 'คุณไม่ได้อยู่ในกลุ่มนี้แล้ว');
+      const b = writeBatch(fs);
+      b.update(doc(fs, 'chats', cid), { lastAt: serverTimestamp(), lastText: body.slice(0, 140), lastBy: me, [`seen.${me}`]: serverTimestamp() });
+      b.set(doc(collection(fs, 'chats', cid, 'msgs')), { by: me, text: body, at: serverTimestamp() });
+      return b.commit().catch((e) => { throw thaiError(e); });
+    },
+    // staff in the group: rename, add or remove people; the change is posted in the chat as a note
+    updateGroup: wrap(async (cid, { name, members }, note) => {
+      const c = S.chats[cid]; const me = uid();
+      must(c && c.kind === 'group' && c.members.includes(me), 'คุณไม่ได้อยู่ในกลุ่มนี้แล้ว');
+      must(isStaff(S.me), 'แก้กลุ่มได้เฉพาะพี่ผู้ดูแลที่อยู่ในกลุ่ม');
+      const all = [...new Set([me, ...(members || c.members)])];
+      must(all.length >= 2, 'กลุ่มต้องมีอย่างน้อย 2 คน');
+      must(all.length <= MAX_GROUP, `กลุ่มหนึ่งมีได้ไม่เกิน ${MAX_GROUP} คน`);
+      const nm = String(name || '').trim().slice(0, 60) || c.name;
+      const host = all.includes(c.host) ? c.host : me;
+      const text = String(note || 'แก้ไขกลุ่ม').slice(0, 140);
+      const b = writeBatch(fs);
+      b.update(doc(fs, 'chats', cid), { name: nm, members: all, host, lastAt: serverTimestamp(), lastText: text, lastBy: me, [`seen.${me}`]: serverTimestamp() });
+      b.set(doc(collection(fs, 'chats', cid, 'msgs')), { by: me, text, at: serverTimestamp(), sys: true });
+      await b.commit();
+    }),
+    leaveGroup: wrap(async (cid) => {
+      const c = S.chats[cid]; const me = uid();
+      must(c && c.kind === 'group' && c.members.includes(me), 'คุณไม่ได้อยู่ในกลุ่มนี้แล้ว');
+      const rest = c.members.filter((x) => x !== me);
+      const patch = { members: rest, lastAt: serverTimestamp(), lastText: 'ออกจากกลุ่ม', lastBy: me };
+      if (c.host === me) {
+        const next = rest.find((x) => isStaff(S.users[x]));
+        must(next, 'กลุ่มต้องมีพี่ผู้ดูแลอย่างน้อย 1 คน เพิ่มพี่อีกคนก่อนออก');
+        patch.host = next;
+      }
+      await updateDoc(doc(fs, 'chats', cid), patch);
+    }),
 
     updateSettings: wrap(async (patch) => {
       must(role() === 'admin', 'ตั้งค่าได้เฉพาะแอดมิน');
