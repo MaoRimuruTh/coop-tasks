@@ -40,6 +40,17 @@ service cloud.firestore {
       '27466b1244e2eea395b43df71cfd4aca74e037367efd103f205a414c028e2d7e',
       'cc3fad3982a5ba47cd9948f9c5545169d2b1cb0eb7766257ae8429d871c3b1b5'
     ]; }
+    // company staff (supervisors, admins who are not interns) and interns, read from a user document
+    function staffDoc(d) { return d.role == 'supervisor' || (d.role == 'admin' && d.get('isStudent', false) == false); }
+    function internDoc(d) { return d.role == 'student' || (d.role == 'admin' && d.get('isStudent', false) == true); }
+    // an intern's พนักงานที่ปรึกษา: nobody, or a staff member
+    function okMentor(m) { return m == null || m == '' || (m is string && exists(userPath(m)) && staffDoc(get(userPath(m)).data)); }
+    // a private chat is always one staff member and one intern
+    function chatPair(a, b) {
+      let ua = get(userPath(a)).data;
+      let ub = get(userPath(b)).data;
+      return (staffDoc(ua) && internDoc(ub)) || (internDoc(ua) && staffDoc(ub));
+    }
 
     match /users/{uid} {
       allow read: if approved() || (signedIn() && request.auth.uid == uid);
@@ -56,9 +67,17 @@ service cloud.firestore {
             && !exists(/databases/$(database)/documents/meta/admin)
             && getAfter(/databases/$(database)/documents/meta/admin).data.uid == request.auth.uid
             && onlyChanged(['role', 'isStudent']) && request.resource.data.role == 'admin')
-        // people may edit their own profile details, never their role
+        // people may edit their own profile details, never their role; an intern also picks their พนักงานที่ปรึกษา
         || (signedIn() && request.auth.uid == uid && approved()
-            && onlyChanged(['name', 'nickname', 'studentId', 'major', 'faculty', 'position']))
+            && onlyChanged(['name', 'nickname', 'studentId', 'major', 'faculty', 'position', 'mentor'])
+            && (!changed().hasAny(['mentor'])
+                || (internDoc(resource.data) && okMentor(request.resource.data.get('mentor', null)))))
+        // a supervisor takes an intern on (mentor = themselves), or lets go of an intern they look after
+        || (role() == 'supervisor' && uid != request.auth.uid && internDoc(resource.data)
+            && onlyChanged(['mentor'])
+            && (request.resource.data.get('mentor', null) == request.auth.uid
+                || (resource.data.get('mentor', null) == request.auth.uid
+                    && (request.resource.data.get('mentor', null) == null || request.resource.data.get('mentor', null) == ''))))
         // an intern-admin opens assigner mode for up to an hour by spending a fresh one-time code in the same batch
         || (signedIn() && request.auth.uid == uid && internAdmin()
             && onlyChanged(['assignerUntil', 'lastUnlock'])
@@ -175,6 +194,43 @@ service cloud.firestore {
         && request.resource.data.data is string && request.resource.data.data.size() < 1000000;
       allow delete: if assigner() || resource.data.by == request.auth.uid;
       allow update: if false;
+    }
+
+    // private chat between one staff member and one intern: only the two of them can read or write it (the admin too is shut out)
+    match /chats/{cid} {
+      allow get: if approved() && request.auth.uid in cid.split('_');
+      allow list: if approved() && request.auth.uid in resource.data.members;
+      allow create: if approved()
+        && request.resource.data.keys().hasOnly(['members', 'lastAt', 'lastText', 'lastBy', 'seen'])
+        && request.resource.data.members is list && request.resource.data.members.size() == 2
+        && request.auth.uid in request.resource.data.members
+        && request.resource.data.members[0] < request.resource.data.members[1]
+        && cid == request.resource.data.members[0] + '_' + request.resource.data.members[1]
+        && chatPair(request.resource.data.members[0], request.resource.data.members[1])
+        && request.resource.data.lastBy == request.auth.uid
+        && request.resource.data.lastAt == request.time
+        && request.resource.data.lastText is string && request.resource.data.lastText.size() <= 140
+        && request.resource.data.seen.keys().hasOnly([request.auth.uid]);
+      allow update: if approved() && request.auth.uid in resource.data.members
+        && onlyChanged(['lastAt', 'lastText', 'lastBy', 'seen'])
+        && (!changed().hasAny(['lastAt', 'lastText', 'lastBy'])
+            || (request.resource.data.lastBy == request.auth.uid && request.resource.data.lastAt == request.time
+                && request.resource.data.lastText is string && request.resource.data.lastText.size() <= 140))
+        && request.resource.data.seen.diff(resource.data.seen).affectedKeys().hasOnly([request.auth.uid])
+        && (!request.resource.data.seen.diff(resource.data.seen).affectedKeys().hasAny([request.auth.uid])
+            || request.resource.data.seen[request.auth.uid] == request.time);
+      allow delete: if false;
+
+      match /msgs/{mid} {
+        allow read: if approved() && request.auth.uid in cid.split('_');
+        allow create: if approved()
+          && request.auth.uid in getAfter(/databases/$(database)/documents/chats/$(cid)).data.members
+          && request.resource.data.keys().hasOnly(['by', 'text', 'at'])
+          && request.resource.data.by == request.auth.uid
+          && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000
+          && request.resource.data.at == request.time;
+        allow update, delete: if false;
+      }
     }
 
     match /activity/{id} {

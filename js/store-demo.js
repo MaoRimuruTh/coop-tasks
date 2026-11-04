@@ -1,8 +1,8 @@
 // Demo store: same interface as the Firebase store, but everything lives in this
 // browser (memory + localStorage). Used for the preview before Firebase is set up.
-import { addDays, stamp, stampS, dateKey, displayName, woNumber, ROLE_TH, shortTitle, canAssign, canReview, isInternAdmin, normCode, fmtTime } from './model.js';
+import { addDays, stamp, stampS, dateKey, displayName, woNumber, ROLE_TH, shortTitle, canAssign, canReview, isInternAdmin, normCode, fmtTime, isStudent, isStaff, mentorLog, canChat, pairId } from './model.js';
 
-const KEY = 'coop-demo-v3';
+const KEY = 'coop-demo-v4';
 
 function svgPhoto(label, hue) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480">
@@ -17,9 +17,11 @@ function svgPhoto(label, hue) {
 function seed() {
   const now = new Date();
   const at = (days, hh, mm = 0) => { const d = addDays(now, days); d.setHours(hh, mm, 0, 0); return stamp(d); };
+  const msAt = (days, hh, mm = 0) => { const d = addDays(now, days); d.setHours(hh, mm, 0, 0); return d.getTime(); };
+  const msAgo = (min) => now.getTime() - min * 60000;
   const users = {
     'u-nat': { uid: 'u-nat', name: 'นพณัฐ พลเพชร', nickname: '', role: 'admin', isStudent: true,
-      studentId: '662091037', major: 'วิศวกรรมเมคคาทรอนิกส์', faculty: 'วิศวกรรมศาสตร์', email: '' },
+      studentId: '662091037', major: 'วิศวกรรมเมคคาทรอนิกส์', faculty: 'วิศวกรรมศาสตร์', email: '', mentor: 'u-ek' },
     'u-ton': { uid: 'u-ton', name: 'ศุภกร ใจดี', nickname: 'ต้น', role: 'student', isStudent: true,
       studentId: '662091052', major: 'วิศวกรรมเมคคาทรอนิกส์', faculty: 'วิศวกรรมศาสตร์', email: '', sample: true },
     'u-fah': { uid: 'u-fah', name: 'ณัฐธิดา แก้วมณี', nickname: 'ฟ้า', role: 'student', isStudent: true,
@@ -90,6 +92,13 @@ function seed() {
       companyAddress: '', companyPhone: '', companyFax: '', companyHours: 'จันทร์–ศุกร์ 08:00–17:00, เสาร์ 08:00–17:00',
       workDays: 'จันทร์–เสาร์', workStart: '08:00', workEnd: '18:00', breakStart: '12:00', breakEnd: '13:00' },
     users, plans, tasks, subs, files,
+    chats: { 'u-ek_u-nat': { id: 'u-ek_u-nat', members: ['u-ek', 'u-nat'], lastText: 'งานวัดชิ้นงานล็อต A ติดตรงไหนทักมาได้เลยนะ', lastBy: 'u-ek',
+      lastAt: msAgo(40), seen: { 'u-ek': msAgo(40), 'u-nat': msAt(-1, 17, 12) } } },
+    msgs: { 'u-ek_u-nat': [
+      { id: 'm1', by: 'u-ek', text: 'พรุ่งนี้เข้า 8 โมงตรงนะ เจอกันที่ห้อง QC', at: msAt(-1, 17, 10) },
+      { id: 'm2', by: 'u-nat', text: 'รับทราบครับพี่', at: msAt(-1, 17, 12) },
+      { id: 'm3', by: 'u-ek', text: 'งานวัดชิ้นงานล็อต A ติดตรงไหนทักมาได้เลยนะ', at: msAgo(40) },
+    ] },
     activity: [
       { at: at(0, 8, 40), by: 'u-ek', text: 'ให้แก้ WO-006', taskId: 't6' },
       { at: at(0, 8), by: 'u-fah', text: 'ส่ง WO-001', taskId: 't1' },
@@ -126,7 +135,7 @@ export function createDemoStore() {
     mode: 'demo',
     ready: Promise.resolve(),
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
-    snapshot() { return { ...db, me: me(), persistOk }; },
+    snapshot() { return { ...db, chats: db.chats || {}, chatsLoaded: true, me: me(), persistOk }; },
 
     // demo-only helpers
     async rotateJoinCode(which) {
@@ -136,6 +145,43 @@ export function createDemoStore() {
       emit();
     },
     setActor(id) { db.actor = id; emit(); },
+
+    // พนักงานที่ปรึกษา: the intern picks, or a staff member takes the intern on / lets go
+    async setMentor(sid, mid) {
+      const st = db.users[sid]; const m = mid ? db.users[mid] : null; const self = sid === db.actor;
+      must(st && isStudent(st), 'พนักงานที่ปรึกษามีไว้สำหรับน้องฝึกงาน');
+      must(!mid || isStaff(m), 'พนักงานที่ปรึกษาต้องเป็นพนักงานของบริษัท');
+      must(self || me()?.role === 'admin' || (isStaff(me()) && (mid === db.actor || (!mid && st.mentor === db.actor))), 'พี่รับดูแลน้องได้ในนามของตัวเองเท่านั้น');
+      const text = mentorLog(db.users, db.actor, sid, mid || null);
+      db.users = { ...db.users, [sid]: { ...st, mentor: mid || null } };
+      log(text, null);
+      emit();
+    },
+    // private chat between one staff member and one intern
+    subscribeChat(cid, cb) {
+      const fire = () => cb(((db.msgs || {})[cid] || []).slice());
+      fire();
+      listeners.add(fire);
+      return () => listeners.delete(fire);
+    },
+    sendChat(otherId, text) {
+      const body = String(text || '').trim();
+      must(body, 'พิมพ์ข้อความก่อน');
+      must(body.length <= 2000, 'ข้อความยาวเกิน 2,000 ตัวอักษร แบ่งส่งเป็นหลายข้อความ');
+      must(canChat(me(), db.users[otherId]), 'แชทได้เฉพาะระหว่างพี่ผู้ดูแลกับน้องฝึกงาน');
+      const cid = pairId(db.actor, otherId); const at = Date.now();
+      const c = (db.chats || {})[cid] || { id: cid, members: [db.actor, otherId].sort(), seen: {} };
+      db.chats = { ...(db.chats || {}), [cid]: { ...c, lastText: body.slice(0, 140), lastBy: db.actor, lastAt: at, seen: { ...c.seen, [db.actor]: at } } };
+      db.msgs = { ...(db.msgs || {}), [cid]: [...((db.msgs || {})[cid] || []), { id: uid('m'), by: db.actor, text: body, at }] };
+      emit();
+      return Promise.resolve();
+    },
+    markChatSeen(cid) {
+      const c = (db.chats || {})[cid];
+      if (c) { db.chats = { ...db.chats, [cid]: { ...c, seen: { ...c.seen, [db.actor]: Date.now() } } }; emit(); }
+      return Promise.resolve();
+    },
+    chatId: (otherId) => pairId(db.actor, otherId),
     reset() { db = seed(); emit(); },
 
     async createTask(input) {

@@ -212,6 +212,39 @@ export function formRows(plans, uid) {
   return rows;
 }
 
+/** Company staff: supervisors, and admins who are not interns. They can be an intern's พนักงานที่ปรึกษา. */
+export const isStaff = (u) => !!u && (u.role === 'supervisor' || (u.role === 'admin' && !u.isStudent));
+
+/** The intern's own พนักงานที่ปรึกษา: the one they (or that supervisor) picked; with a single supervisor, that one. */
+export const mentorOf = (users, student) => {
+  const m = student && student.mentor && users[student.mentor];
+  if (isStaff(m)) return m;
+  const sups = Object.values(users || {}).filter((u) => u.role === 'supervisor');
+  return sups.length === 1 ? sups[0] : null;
+};
+
+/** Activity text for a change of พนักงานที่ปรึกษา (the feed puts the actor's name in front). */
+export function mentorLog(users, actorId, studentId, mentorId) {
+  const st = users[studentId] || {}; const before = st.mentor || null;
+  const s = displayName(st); const m = mentorId ? displayName(users[mentorId]) : '';
+  if (actorId === studentId) return mentorId ? `เลือก ${m} เป็นพนักงานที่ปรึกษา` : 'ยกเลิกพนักงานที่ปรึกษาที่เลือกไว้';
+  if (mentorId && mentorId === actorId) return before && before !== actorId ? `รับดูแล ${s} แทน ${displayName(users[before])}` : `รับดูแล ${s}`;
+  if (!mentorId) return before === actorId ? `เลิกดูแล ${s}` : `ยกเลิกพนักงานที่ปรึกษาของ ${s}`;
+  return `ตั้ง ${m} เป็นพนักงานที่ปรึกษาของ ${s}`;
+}
+
+// ---------- private chat: one staff member and one intern ----------
+const ACTIVE = ['admin', 'supervisor', 'student'];
+/** Interns chat with staff, staff chat with interns; interns never chat with each other. */
+export const canChat = (a, b) => !!a && !!b && a.uid !== b.uid && ACTIVE.includes(a.role) && ACTIVE.includes(b.role)
+  && ((isStaff(a) && isStudent(b)) || (isStudent(a) && isStaff(b)));
+export const chatPeople = (users, me) => Object.values(users || {}).filter((u) => canChat(me, u));
+export const pairId = (a, b) => [a, b].sort().join('_');
+export const otherOf = (chat, uid) => (chat.members || []).find((x) => x !== uid);
+export const isUnread = (chat, uid) => !!chat && (chat.members || []).includes(uid) && !!chat.lastBy && chat.lastBy !== uid
+  && (chat.lastAt || 0) > ((chat.seen || {})[uid] || 0);
+export const unreadCount = (chats, uid) => Object.values(chats || {}).filter((c) => isUnread(c, uid)).length;
+
 // ---------- plan: big items (หัวข้องาน) with optional sub-items (หัวข้อย่อย) ----------
 export const planSort = (a, b) => (Math.min(...a.weeks) - Math.min(...b.weeks)) || ((a.order ?? 99) - (b.order ?? 99));
 export const cleanWeeks = (w) => [...new Set(w)].filter((n) => n >= 1 && n <= 16).sort((a, b) => a - b);

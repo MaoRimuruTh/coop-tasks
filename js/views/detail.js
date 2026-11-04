@@ -2,7 +2,7 @@
 import { html, useState, useEffect, useRef } from '../vendor/preact-htm.js';
 import { useApp } from '../ctx.js';
 import { stateOf, isLate, woNumber, displayName, toLocalDate, fmtDate, fmtTime, fmtDay, canEditTask, canReview as canReviewAny, weeksLabel, planLabel, stepOf } from '../model.js';
-import { Sheet, Icon, StateTag, DueChip, PrioLabel, Lamp, Field } from '../ui.js';
+import { Sheet, Icon, StateTag, DueChip, PrioLabel, Lamp, Field, ConfirmButton } from '../ui.js';
 import { compressImage } from '../image.js';
 import { planTitle } from './rows.js';
 
@@ -127,6 +127,9 @@ export function TaskDetail({ task, onClose }) {
     setBusy(false);
   };
   const ack = () => run(() => store.ack(task.id), 'รับทราบแล้ว');
+  const remove = async () => {
+    try { await store.deleteTask(task.id); toast(`ลบ ${woNumber(task)} แล้ว`); onClose(); } catch (ex) { toast(ex.message, 'bad'); }
+  };
   const approve = (s) => run(() => store.review(s.id, 'approved', ''), `ตรวจผ่าน · ${s.for.map((u) => displayName(db.users[u])).join(', ')}`);
   const openChanges = (s) => {
     setChangesFor(s.id);
@@ -211,6 +214,13 @@ export function TaskDetail({ task, onClose }) {
           <${StateTag} state=${s} late=${late} /></li>`;
       })}</ul>
     </section>
+
+    ${editable ? html`<section class="danger-zone">
+      <h4>สั่งผิด?</h4>
+      <p class="hint-line">${subs && subs.length ? `งานนี้ส่งมาแล้ว ${subs.length} ครั้ง ลบแล้วงานที่ส่งและรูปจะหายไปด้วย ถ้าแค่ชื่อหรือกำหนดส่งผิด ใช้ปุ่มแก้ไขด้านบนแทน`
+        : 'ลบใบสั่งงานนี้ทิ้งได้เลย น้องจะไม่เห็นอีก ประวัติจะบันทึกว่าใครลบ ถ้าแค่ชื่อหรือกำหนดส่งผิด ใช้ปุ่มแก้ไขด้านบนแทน'}</p>
+      <${ConfirmButton} label="ลบใบสั่งงานนี้" confirmLabel="แตะอีกครั้งเพื่อลบ" icon="trash" onConfirm=${remove} />
+    </section>` : ''}
 
     ${big ? html`<div class="lightbox" onClick=${() => setBig(null)} role="dialog" aria-label="รูปขนาดใหญ่">
       <img src=${big.data} alt=${big.name} /><button type="button" class="icon-btn lightbox-x" aria-label="ปิดรูป"><${Icon} name="close" /></button></div>` : ''}

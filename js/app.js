@@ -1,6 +1,6 @@
 // App shell: data subscription, hash routing, navigation, demo persona switcher, toasts.
 import { html, render, useEffect, useMemo, useState, useCallback, useRef } from './vendor/preact-htm.js';
-import { calendar, weekOf, displayName, isStudent, canAssign, canReview, isInternAdmin, assignerOpen, assignerUntil, fmtDay, fmtTime, fmtRange, TH_DAYS, stateOf, isLate } from './model.js';
+import { calendar, weekOf, displayName, isStudent, isStaff, canAssign, canReview, isInternAdmin, assignerOpen, assignerUntil, fmtDay, fmtTime, fmtRange, TH_DAYS, stateOf, isLate, isUnread, unreadCount, otherOf } from './model.js';
 import { Icon } from './ui.js';
 import { Ctx } from './ctx.js';
 import { MyTasks } from './views/my.js';
@@ -13,6 +13,7 @@ import { UniForm } from './views/uniform.js';
 import { AdminView } from './views/admin.js';
 import { SignIn, Waiting } from './views/signin.js';
 import { ProfileSheet } from './views/profile.js';
+import { ChatView } from './views/chat.js';
 
 const ROLE_LABEL = { admin: 'แอดมิน', supervisor: 'พนักงานผู้ดูแล', student: 'นักศึกษา', pending: 'รออนุมัติ' };
 export const roleLabel = (u) => (u.role === 'admin' && u.isStudent ? 'แอดมิน · นักศึกษา' : ROLE_LABEL[u.role] || u.role);
@@ -21,6 +22,8 @@ function tabsFor(me, badges, now) {
   const t = [];
   if (isStudent(me)) t.push({ id: 'my', label: 'งานของฉัน', icon: 'inbox', badge: badges.mine });
   if (canAssign(me, now)) t.push({ id: 'board', label: 'ภาพรวม', icon: 'board', badge: badges.review }, { id: 'tasks', label: 'งานทั้งหมด', icon: 'list' });
+  // private chat: interns with staff, staff with interns
+  if (isStudent(me) || isStaff(me)) t.push({ id: 'chat', label: 'แชท', icon: 'chat', badge: badges.chat });
   t.push({ id: 'plan', label: 'แผน 16 สัปดาห์', short: 'แผน', icon: 'plan' });
   // used a few times in the whole internship: on phones it is a button on the plan page
   t.push({ id: 'form', label: 'ฟอร์มส่งมหาลัย', short: 'ฟอร์ม', icon: 'form', deskOnly: true });
@@ -53,8 +56,10 @@ function DemoBar({ store, db }) {
   </div>`;
 }
 
-function Toasts({ items }) {
-  return html`<div class="toasts" aria-live="polite">${items.map((t) => html`<div class=${`toast toast--${t.tone}`} key=${t.id}>${t.text}</div>`)}</div>`;
+function Toasts({ items, onAction }) {
+  return html`<div class="toasts" aria-live="polite">${items.map((t) => html`<div class=${`toast toast--${t.tone}${t.action ? ' toast--act' : ''}`} key=${t.id}>
+    <span class="toast-text">${t.text}</span>
+    ${t.action ? html`<button type="button" class="toast-btn" onClick=${() => onAction(t)}>${t.action.label}</button>` : ''}</div>`)}</div>`;
 }
 
 function App({ store }) {
@@ -74,11 +79,34 @@ function App({ store }) {
     return () => window.removeEventListener('hashchange', on);
   }, []);
 
-  const toast = useCallback((text, tone = 'info') => {
+  // toast(text, tone, action?) — an action ({ label, run }) keeps the toast up a little longer and makes it tappable
+  const toast = useCallback((text, tone = 'info', action = null, key = null) => {
     const id = Math.random();
-    setToasts((x) => [...x, { id, text, tone }]);
-    setTimeout(() => setToasts((x) => x.filter((t) => t.id !== id)), 3200);
+    // only the newest toast keeps its button, so an older "ยกเลิก" can never be tapped by mistake
+    setToasts((x) => [...(action ? x.filter((t) => !t.action) : x), { id, text, tone, action, key }]);
+    setTimeout(() => setToasts((x) => x.filter((t) => t.id !== id)), action ? 7000 : 3200);
   }, []);
+  const toastAction = (t) => { setToasts((x) => x.filter((y) => y.id !== t.id)); t.action.run(); };
+
+  // a new chat message while I am elsewhere in the app: a short toast with a way into the chat
+  const chatMarks = useRef(null);
+  useEffect(() => {
+    if (!db.me || !db.chatsLoaded) return;
+    const chats = Object.values(db.chats || {});
+    const prev = chatMarks.current;
+    chatMarks.current = Object.fromEntries(chats.map((c) => [c.id, c.lastAt || 0]));
+    if (!prev) return;
+    const here = readHash();
+    chats.filter((c) => (c.lastAt || 0) > (prev[c.id] || 0) && isUnread(c, db.me.uid)).forEach((c) => {
+      const other = otherOf(c, db.me.uid);
+      if (here === 'chat' || here === `chat-${other}`) return;
+      toast(`${displayName((db.users || {})[other])}: ${c.lastText}`, 'info', { label: 'เปิดแชท', run: () => { location.hash = `chat-${other}`; } }, `chat-${other}`);
+    });
+  }, [db.chats, db.chatsLoaded]);
+  // opening the chat (or the chat list) clears its message toast
+  useEffect(() => {
+    if (route === 'chat' || route.startsWith('chat-')) setToasts((x) => x.filter((t) => !t.key || (route !== 'chat' && t.key !== route)));
+  }, [route]);
 
   const me = db.me;
   const cal = useMemo(() => calendar(db.settings), [db.settings]);
@@ -89,7 +117,7 @@ function App({ store }) {
   if (store.mode !== 'demo' && !me) return html`<${SignIn} store=${store} />`;
   if (me && (me.role === 'pending' || me.role === 'blocked')) return html`<${Waiting} store=${store} me=${me} />`;
 
-  const badges = { mine: 0, review: 0 };
+  const badges = { mine: 0, review: 0, chat: unreadCount(db.chats, me.uid) };
   for (const t of Object.values(db.tasks)) {
     if (t.assignees.includes(me.uid)) {
       const s = stateOf(t, me.uid);
@@ -101,7 +129,7 @@ function App({ store }) {
   const assignerOn = isInternAdmin(me) && assignerOpen(me, now);
   const lockNow = async () => { try { await store.lockAssigner(); toast('ล็อกโหมดผู้มอบงานแล้ว'); } catch (ex) { toast(ex.message, 'bad'); } };
   const woMatch = /^wo-(\d+)$/.exec(route);
-  let tab = woMatch ? (lastTab.current || tabs[0].id) : route;
+  let tab = woMatch ? (lastTab.current || tabs[0].id) : /^chat-./.test(route) ? 'chat' : route;
   if (!tabs.some((t) => t.id === tab)) tab = tabs[0].id;
   if (!woMatch) lastTab.current = tab;
   const openTask = (no) => { location.hash = `wo-${no}`; };
@@ -109,10 +137,11 @@ function App({ store }) {
   const go = (id) => { location.hash = id; };
   const detailTask = woMatch ? Object.values(db.tasks).find((t) => String(t.no) === woMatch[1]) : null;
 
-  const ctx = { store, db, me, now, cal, users, students, toast, go, openTask, editTask: setFormTask, taskFilter, setTaskFilter };
+  const ctx = { store, db, me, now, cal, users, students, toast, go, route, openTask, editTask: setFormTask, taskFilter, setTaskFilter,
+    openProfile: () => setProfileOpen(true) };
   const week = weekOf(cal, now);
 
-  const View = { my: MyTasks, board: Board, tasks: AllTasks, plan: PlanView, form: UniForm, admin: AdminView }[tab];
+  const View = { my: MyTasks, board: Board, tasks: AllTasks, chat: ChatView, plan: PlanView, form: UniForm, admin: AdminView }[tab];
 
   return html`<${Ctx.Provider} value=${ctx}>
     ${store.mode === 'demo' ? html`<${DemoBar} store=${store} db=${db} />` : ''}
@@ -154,7 +183,7 @@ function App({ store }) {
     ${woMatch && !detailTask && db.loaded !== false ? html`<${MissingTask} onClose=${closeTask} />` : ''}
     ${profileOpen ? html`<${ProfileSheet} onClose=${() => setProfileOpen(false)} />` : ''}
     ${formTask ? html`<${TaskForm} task=${formTask.id ? formTask : null} onClose=${() => setFormTask(null)} />` : ''}
-    <${Toasts} items=${toasts} />
+    <${Toasts} items=${toasts} onAction=${toastAction} />
   <//>`;
 }
 

@@ -87,8 +87,12 @@ export function TaskForm({ task, onClose }) {
       if (editing) { await store.updateTask(task.id, data); toast('บันทึกการแก้ไขแล้ว', 'ok'); onClose(); }
       else {
         const id = await store.createTask(data);
-        const no = store.snapshot().tasks[id]?.no;
-        toast(`สั่งงานแล้ว${no ? ` WO-${String(no).padStart(3, '0')}` : ''}`, 'ok');
+        const no = store.snapshot().tasks[id]?.no || (store.noOf && store.noOf(id));
+        const wo = no ? ` WO-${String(no).padStart(3, '0')}` : '';
+        // สั่งผิด? the toast carries a one-tap undo for a few seconds
+        toast(`สั่งงานแล้ว${wo}`, 'ok', { label: 'ยกเลิก', run: async () => {
+          try { await store.deleteTask(id); toast(`ยกเลิกใบสั่งงาน${wo} แล้ว`); } catch (ex) { toast(ex.message, 'bad'); }
+        } });
         if (again) {
           // keep people, due date, priority and plan; clear what is specific to the last task
           setTitle(''); setDetails(''); setOrder(order ? String(Number(order) + 1) : '');

@@ -1,12 +1,14 @@
 // "งานของฉัน" — what an intern opens every morning: what to do next comes first.
 import { html, useState } from '../vendor/preact-htm.js';
 import { useApp } from '../ctx.js';
-import { bucketsFor, stateOf, compareTasks } from '../model.js';
+import { bucketsFor, stateOf, compareTasks, mentorOf, isStaff } from '../model.js';
 import { Seg, Empty } from '../ui.js';
 import { MyRow } from './rows.js';
 
 export function MyTasks() {
-  const { db, me, now, store, toast } = useApp();
+  const { db, me, now, store, toast, openProfile } = useApp();
+  // more than one พี่ in the team and none picked yet: the form would leave the mentor's name blank
+  const needMentor = !mentorOf(db.users, me) && Object.values(db.users).filter(isStaff).length > 0;
   const [view, setView] = useState('todo');
   const [busy, setBusy] = useState(false);
   const mine = Object.values(db.tasks).filter((t) => t.assignees.includes(me.uid));
@@ -25,6 +27,8 @@ export function MyTasks() {
 
   return html`<section class="page">
     <header class="page-head"><h1>งานของฉัน</h1></header>
+    ${needMentor ? html`<p class="callout callout--wait callout--row"><span>ยังไม่ได้เลือกพี่ที่ดูแลเรา (พนักงานที่ปรึกษา) ชื่อพี่ใช้ลงฟอร์มส่งมหาลัย</span>
+      <button type="button" class="btn btn--sm btn--ghost" onClick=${openProfile}>เลือกพี่ที่ดูแล</button></p>` : ''}
 
     <${Seg} label="มุมมองงาน" value=${view} onChange=${setView} options=${[
       { value: 'todo', label: 'ต้องทำ', count: todo.length },

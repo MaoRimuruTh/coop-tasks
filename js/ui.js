@@ -29,6 +29,8 @@ const PATHS = {
   refresh: 'M20 11a8 8 0 10-2.3 5.7M20 4v7h-7',
   send: 'M4 12l16-8-6 16-2.5-6.5z',
   image: 'M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15.5 9.5h.01',
+  chat: 'M4 5h16v11h-9l-5 4v-4H4zM8 9.5h8M8 12.5h5',
+  lock: 'M6 11h12v9H6zM8.5 11V8a3.5 3.5 0 017 0v3',
 };
 
 export function Icon({ name, size = 20, label }) {
@@ -85,7 +87,8 @@ export function Prio({ value, withLabel }) {
 
 export function Avatar({ user, state, late, size = 'md' }) {
   const name = displayName(user);
-  const ch = name.replace(/^พี่/, '').trim().slice(0, 1);
+  const bare = name.replace(/^พี่/, '').trim();
+  const ch = bare.slice(0, /^[เแโใไ]/.test(bare) ? 2 : 1); // keep a leading vowel with its consonant: เอ, แก, โอ
   const lamp = state ? (late ? 'stop' : STATES[state].lamp) : 'none';
   return html`<span class=${`avatar avatar--${size} avatar--${lamp}`} title=${name}>${ch}</span>`;
 }

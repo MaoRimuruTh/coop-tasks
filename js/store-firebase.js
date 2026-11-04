@@ -1,7 +1,7 @@
 // Firebase store: same interface as store-demo.js, backed by Firestore + Google sign-in.
 // Free Spark plan only: photos are shrunk on the phone and stored as Firestore documents
 // (Cloud Storage would need the paid Blaze plan).
-import { stampS, woNumber, displayName, ROLE_TH, shortTitle, canAssign, canReview, isInternAdmin, normCode, fmtTime } from './model.js';
+import { stampS, woNumber, displayName, ROLE_TH, shortTitle, canAssign, canReview, isInternAdmin, normCode, fmtTime, isStudent, isStaff, mentorLog, canChat, pairId } from './model.js';
 
 const SDK = 'https://www.gstatic.com/firebasejs/10.14.1';
 const DEFAULT_SETTINGS = { startDate: '2026-11-02', endDate: '2027-02-19', company: '', university: 'มหาวิทยาลัยทักษิณ',
@@ -37,11 +37,14 @@ export async function createFirebaseStore(config) {
     A.connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
     F.connectFirestoreEmulator(fs, '127.0.0.1', 8080);
   }
-  const { doc, collection, collectionGroup, onSnapshot, getDoc, getDocs, setDoc, updateDoc, deleteDoc, writeBatch, runTransaction, query, orderBy, limit, where, Timestamp } = F;
+  const { doc, collection, collectionGroup, onSnapshot, getDoc, getDocs, setDoc, updateDoc, deleteDoc, writeBatch, runTransaction, query, orderBy, limit, limitToLast, where, Timestamp, serverTimestamp } = F;
+  // chat times are server timestamps (one clock for both phones); the app works with milliseconds
+  const ms = (v) => (v && typeof v.toMillis === 'function' ? v.toMillis() : typeof v === 'number' ? v : 0);
 
-  const S = { me: null, users: {}, plans: {}, tasks: {}, progress: {}, settings: DEFAULT_SETTINGS, activity: [], join: null, online: navigator.onLine, loaded: false };
+  const S = { me: null, users: {}, plans: {}, tasks: {}, progress: {}, settings: DEFAULT_SETTINGS, activity: [], join: null, chats: {}, chatOff: false, online: navigator.onLine, loaded: false };
   const listeners = new Set();
   const subIndex = {}; // subId -> taskId (filled by subsFor)
+  const newNos = {}; // taskId -> work-order number, for tasks created on this phone
   const fileCache = {};
   let unsubs = [];
   let snap = build();
@@ -53,7 +56,7 @@ export async function createFirebaseStore(config) {
     const tasks = {};
     for (const [id, t] of Object.entries(S.tasks)) tasks[id] = { ...t, state: S.progress[id] || {} };
     return { settings: { ...DEFAULT_SETTINGS, ...S.settings }, users: S.users, plans: S.plans, tasks, activity: S.activity, join: S.join,
-      me: S.me, actor: S.me && S.me.uid, online: S.online, loaded: S.loaded, persistOk: true };
+      chats: S.chats, chatOff: S.chatOff, chatsLoaded: !!S.chatsLoaded, me: S.me, actor: S.me && S.me.uid, online: S.online, loaded: S.loaded, persistOk: true };
   }
   const emit = () => { snap = build(); listeners.forEach((fn) => fn()); };
   const uid = () => auth.currentUser && auth.currentUser.uid;
@@ -94,6 +97,15 @@ export async function createFirebaseStore(config) {
     });
     listen(doc(fs, 'settings', 'app'), (d) => { S.settings = d.exists() ? d.data() : {}; emit(); });
     listen(query(collection(fs, 'activity'), orderBy('at', 'desc'), limit(60)), (qs) => { S.activity = qs.docs.map((d) => d.data()); emit(); });
+    // my private chats only (the rules let nobody else read them); a failure here never restarts the other listeners
+    keep(onSnapshot(query(collection(fs, 'chats'), where('members', 'array-contains', S.me.uid)), (qs) => {
+      S.chats = Object.fromEntries(qs.docs.map((d) => {
+        const x = d.data({ serverTimestamps: 'estimate' });
+        return [d.id, { id: d.id, members: x.members || [], lastText: x.lastText || '', lastBy: x.lastBy || null, lastAt: ms(x.lastAt),
+          seen: Object.fromEntries(Object.entries(x.seen || {}).map(([k, v]) => [k, ms(v)])) }];
+      }));
+      S.chatOff = false; S.chatsLoaded = true; emit();
+    }, (e) => { console.warn('chat listener stopped:', e && e.code); S.chatOff = true; emit(); }));
     if (S.me && S.me.role === 'admin') {
       // invite codes for the two invite links; made the first time the admin opens the app
       listen(doc(fs, 'meta', 'join'), (d) => {
@@ -163,6 +175,8 @@ export async function createFirebaseStore(config) {
       await setDoc(doc(fs, 'settings', 'app'), DEFAULT_SETTINGS, { merge: true });
     }),
 
+    // the work-order number of a task just created, before the listener brings it in
+    noOf: (id) => (S.tasks[id] && S.tasks[id].no) || newNos[id] || null,
     createTask: wrap(async (input) => {
       mayAssign(); notOwn(input.assignees);
       const ref = doc(collection(fs, 'tasks'));
@@ -174,6 +188,7 @@ export async function createFirebaseStore(config) {
         tx.set(ref, { ...input, no, createdBy: uid(), created: now() });
         input.assignees.forEach((a) => tx.set(doc(fs, 'tasks', ref.id, 'progress', a), { s: 'assigned', at: now() }));
         tx.set(activityRef(), { at: now(), by: uid(), text: `สั่งงาน ${woNumber({ no })} “${shortTitle(input.title)}”`, taskId: ref.id });
+        newNos[ref.id] = no;
       });
       return ref.id;
     }),
@@ -192,7 +207,12 @@ export async function createFirebaseStore(config) {
     }),
     deleteTask: wrap(async (id) => {
       mayAssign();
-      const t = S.tasks[id];
+      let t = S.tasks[id];
+      if (!t) { // "ยกเลิก" tapped before the new work order reached the list
+        const d = await getDoc(doc(fs, 'tasks', id));
+        must(d.exists(), 'ไม่พบใบสั่งงานนี้ อาจถูกลบไปแล้ว');
+        t = { id, ...d.data() };
+      }
       notOwn(t.assignees);
       const [subs, files] = await Promise.all([getDocs(collection(fs, 'tasks', id, 'subs')), getDocs(query(collection(fs, 'attachments'), where('taskId', '==', id)))]);
       const b = writeBatch(fs);
@@ -334,6 +354,43 @@ export async function createFirebaseStore(config) {
       logIn(b, 'ล็อกโหมดผู้มอบงาน');
       await b.commit();
     }),
+    // พนักงานที่ปรึกษา: the intern picks their own, or a staff member takes the intern on (or lets go)
+    setMentor: wrap(async (sid, mid) => {
+      const st = S.users[sid]; const m = mid ? S.users[mid] : null; const self = sid === uid();
+      must(st && isStudent(st), 'พนักงานที่ปรึกษามีไว้สำหรับน้องฝึกงาน');
+      must(!mid || isStaff(m), 'พนักงานที่ปรึกษาต้องเป็นพนักงานของบริษัท');
+      must(self || role() === 'admin' || (isStaff(S.me) && (mid === uid() || (!mid && st.mentor === uid()))), 'พี่รับดูแลน้องได้ในนามของตัวเองเท่านั้น');
+      const b = writeBatch(fs);
+      b.update(doc(fs, 'users', sid), { mentor: mid || null });
+      logIn(b, mentorLog(S.users, uid(), sid, mid || null));
+      await b.commit();
+    }),
+
+    // private chat: chats/{a_b} holds the members and the last message, chats/{a_b}/msgs the messages
+    subscribeChat(cid, cb) {
+      const q = query(collection(fs, 'chats', cid, 'msgs'), orderBy('at'), limitToLast(300));
+      return onSnapshot(q, { includeMetadataChanges: true }, (qs) => cb(qs.docs.map((d) => {
+        const x = d.data({ serverTimestamps: 'estimate' });
+        return { id: d.id, by: x.by, text: x.text, at: ms(x.at), pending: d.metadata.hasPendingWrites };
+      })), (e) => cb(null, thaiError(e)));
+    },
+    // no await on the server: offline, the message waits in the phone and goes out when the line is back
+    sendChat(otherId, text) {
+      const body = String(text || '').trim();
+      must(body, 'พิมพ์ข้อความก่อน');
+      must(body.length <= 2000, 'ข้อความยาวเกิน 2,000 ตัวอักษร แบ่งส่งเป็นหลายข้อความ');
+      must(canChat(S.me, S.users[otherId]), 'แชทได้เฉพาะระหว่างพี่ผู้ดูแลกับน้องฝึกงาน');
+      const me = uid(); const members = [me, otherId].sort(); const cid = members.join('_');
+      const b = writeBatch(fs);
+      b.set(doc(fs, 'chats', cid), { members, lastAt: serverTimestamp(), lastText: body.slice(0, 140), lastBy: me, seen: { [me]: serverTimestamp() } }, { merge: true });
+      b.set(doc(collection(fs, 'chats', cid, 'msgs')), { by: me, text: body, at: serverTimestamp() });
+      return b.commit().catch((e) => { throw thaiError(e); });
+    },
+    markChatSeen(cid) {
+      return updateDoc(doc(fs, 'chats', cid), { [`seen.${uid()}`]: serverTimestamp() }).catch((e) => console.warn('seen:', e && e.code));
+    },
+    chatId: (otherId) => pairId(uid(), otherId),
+
     updateSettings: wrap(async (patch) => {
       must(role() === 'admin', 'ตั้งค่าได้เฉพาะแอดมิน');
       await setDoc(doc(fs, 'settings', 'app'), patch, { merge: true });
@@ -346,7 +403,7 @@ export async function createFirebaseStore(config) {
   A.onAuthStateChanged(auth, async (user) => {
     if (meUnsub) { meUnsub(); meUnsub = null; }
     stopData();
-    if (!user) { S.me = null; S.users = {}; S.tasks = {}; S.progress = {}; S.plans = {}; emit(); readyResolve(); return; }
+    if (!user) { S.me = null; S.users = {}; S.tasks = {}; S.progress = {}; S.plans = {}; S.chats = {}; S.chatsLoaded = false; emit(); readyResolve(); return; }
     try {
       const ref = doc(fs, 'users', user.uid);
       const got = await getDoc(ref);
