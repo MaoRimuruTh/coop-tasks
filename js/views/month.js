@@ -115,7 +115,7 @@ export function MonthView({ m, onEdit }) {
                   </td>
                   <td class="c-chk"><span class="tick is-on">✓</span></td>
                   <td class="c-chk"><span class=${`tick${l.status === 'done' ? ' is-on' : ''}`}>${l.status === 'done' ? '✓' : ''}</span>
-                    <small class=${`tick-note${l.okBy ? '' : ' tick-note--wait'}`}>${l.status === 'doing' ? 'ยังไม่เสร็จ · ' : ''}${l.okBy ? 'พี่รับรอง' : 'รอรับรอง'}</small></td>
+                    ${l.status === 'doing' || l.okBy ? html`<small class="tick-note">${[l.status === 'doing' ? 'ยังไม่เสร็จ' : '', l.okBy ? 'พี่รับรอง' : ''].filter(Boolean).join(' · ')}</small>` : ''}</td>
                 </tr>`);
               return [...list.map((t, i) => {
                 const s = stateOf(t, student.uid);

@@ -295,7 +295,8 @@ export const isUnread = (chat, uid) => !!chat && (chat.members || []).includes(u
 export const unreadCount = (chats, uid) => Object.values(chats || {}).filter((c) => isUnread(c, uid)).length;
 
 // ---------- บันทึกงานที่ทำ: work an intern logs himself (asked by word of mouth, training, helping out) ----------
-// Never a work order: it carries a "บันทึกเอง" mark, and a พี่ confirms it; any edit by the intern takes the confirmation away.
+// Never a work order: it carries a "บันทึกเอง" mark. A พี่ may confirm an entry (nobody is asked to); any edit by the intern
+// takes that confirmation away.
 export const LOG_SLOTS = [
   { value: 'am', label: 'ช่วงเช้า', short: 'เช้า' },
   { value: 'pm', label: 'ช่วงบ่าย', short: 'บ่าย' },
@@ -312,14 +313,6 @@ export const compareLogs = (a, b) => (a.day !== b.day ? (a.day < b.day ? 1 : -1)
   : ((SLOT_RANK[a.slot] ?? 3) - (SLOT_RANK[b.slot] ?? 3)) || ((a.at || 0) - (b.at || 0)));
 /** Written down on a later day than the work itself (the server time of writing cannot be set by hand). */
 export const loggedLate = (log) => !!log.at && dateKey(new Date(log.at)) !== log.day;
-/** Entries a พี่ is asked to confirm: from the interns he looks after, and from interns nobody looks after yet. */
-export const logsToConfirm = (db, staffId) => Object.values(db.logs || {}).filter((l) => {
-  if (l.okBy) return false;
-  const u = (db.users || {})[l.by];
-  if (!canLog(u)) return false;
-  const ids = mentorsOf(u).filter((id) => isStaff((db.users || {})[id]));
-  return ids.length ? ids.includes(staffId) : true;
-});
 /** Trimmed, checked fields of an entry (the same limits as firestore.rules). */
 export function cleanLog(input, today) {
   const s = (v, n) => String(v ?? '').trim().slice(0, n);

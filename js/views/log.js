@@ -1,9 +1,10 @@
 // "บันทึกงานที่ทำ" — work an intern really did that never came as a work order: a พี่ asked by word of mouth,
-// the head sent him to a training, he helped another team. He writes it down himself, it carries a "บันทึกเอง" mark,
-// and a พี่ confirms it. Any edit by the intern takes the confirmation away; entries written days later say so.
+// the head sent him to a training, he helped another team. He writes it down himself as proof of his work; it carries
+// a "บันทึกเอง" mark and says so when it was written days later. Nobody has to sign it off: a พี่ who has the time
+// may confirm an entry, and any edit by the intern takes that confirmation away.
 import { html, useState, useEffect, useRef } from '../vendor/preact-htm.js';
 import { useApp } from '../ctx.js';
-import { canLog, isStaff, displayName, mentorsOf, compareLogs, loggedLate, logsToConfirm, LOG_SLOTS, LOG_STATUS, slotLabel,
+import { canLog, isStaff, displayName, mentorsOf, compareLogs, loggedLate, LOG_SLOTS, LOG_STATUS, slotLabel,
   MAX_LOG_PHOTOS, toLocalDate, dateKey, addDays, weekOf, fmtDay, fmtDate, fmtTime, fmtRange, planSort, wLabel } from '../model.js';
 import { Sheet, Field, Icon, Empty, Seg, TwoTap, ConfirmButton } from '../ui.js';
 import { compressImage } from '../image.js';
@@ -78,16 +79,16 @@ function LogItem({ log, staff, onEdit }) {
     <div class="log-foot">
       <span class="self-tag">บันทึกเอง</span>
       ${log.okBy ? html`<span class="log-ok"><${Icon} name="check" size=${16} />รับรองโดย ${displayName(db.users[log.okBy])}${log.okAt ? ` · ${fmtDate(new Date(log.okAt))}` : ''}</span>`
-        : html`<span class="log-wait">${log.pending ? 'กำลังบันทึก…' : 'รอพี่รับรอง'}</span>`}
+        : log.pending ? html`<span class="log-wait">กำลังบันทึก…</span>` : ''}
       <span class="foot-space"></span>
       ${log.by === me.uid ? html`<button type="button" class="link-btn link-btn--inline" onClick=${() => onEdit(log)}>แก้ไข</button>` : ''}
-      ${staff && !log.okBy ? html`<button type="button" class="btn btn--sm btn--ok" onClick=${() => confirm(true)}><${Icon} name="check" size=${18} />รับรอง</button>` : ''}
+      ${staff && !log.okBy ? html`<button type="button" class="btn btn--sm btn--ghost" onClick=${() => confirm(true)}><${Icon} name="check" size=${18} />รับรอง</button>` : ''}
       ${staff && log.okBy ? html`<${TwoTap} label="ยกเลิกการรับรอง" confirmLabel="แตะอีกครั้งเพื่อยกเลิก" onConfirm=${() => confirm(false)} />` : ''}
     </div>
   </li>`;
 }
 
-/** Entries by internship week (newest first), then by day. Older weeks that are fully confirmed start folded. */
+/** Entries by internship week (newest first), then by day. Older weeks start folded. */
 function LogWeeks({ logs, staff, onEdit }) {
   const { cal, now, store, toast } = useApp();
   const groups = [];
@@ -97,7 +98,7 @@ function LogWeeks({ logs, staff, onEdit }) {
     if (!g || g.w !== w) { g = { w, items: [] }; groups.push(g); }
     g.items.push(l);
   }
-  const [shut, setShut] = useState(() => new Set(groups.filter((g, i) => i > 0 && g.items.every((l) => l.okBy)).map((g) => g.w)));
+  const [shut, setShut] = useState(() => new Set(groups.slice(1).map((g) => g.w)));
   const toggle = (w) => setShut((s) => { const n = new Set(s); if (n.has(w)) n.delete(w); else n.add(w); return n; });
   const confirmAll = (items) => store.confirmLogs(items.map((l) => l.id), true)
     .then((n) => toast(`รับรอง ${n} รายการแล้ว`, 'ok'), (ex) => toast(ex.message, 'bad'));
@@ -106,6 +107,7 @@ function LogWeeks({ logs, staff, onEdit }) {
   return html`<div class="log-weeks">${groups.map((g) => {
     const wk = g.w ? cal.weeks[g.w - 1] : null;
     const waiting = g.items.filter((l) => !l.okBy);
+    const okN = g.items.length - waiting.length;
     const open = !shut.has(g.w);
     const days = [];
     for (const l of g.items) {
@@ -118,9 +120,9 @@ function LogWeeks({ logs, staff, onEdit }) {
         <button type="button" class="log-week-btn" aria-expanded=${open} onClick=${() => toggle(g.w)}>
           <${Icon} name=${open ? 'down' : 'chevron'} size=${18} />
           <span class="log-week-name">${g.w ? `สัปดาห์ที่ ${g.w}` : 'นอกช่วงฝึกงาน'}${wk ? html`<small>${fmtRange(wk.from, wk.to)}</small>` : ''}</span>
-          <span class="log-week-count">${g.items.length} รายการ · ${waiting.length ? html`<b class="txt-wait">รอรับรอง ${waiting.length}</b>` : html`<b class="txt-ok">รับรองครบ</b>`}</span>
+          <span class="log-week-count">${g.items.length} รายการ${okN ? html` · <b class="txt-ok">พี่รับรอง ${okN}</b>` : ''}</span>
         </button>
-        ${staff && waiting.length > 1 ? html`<button type="button" class="btn btn--sm btn--ok" onClick=${() => confirmAll(waiting)}>
+        ${staff && waiting.length > 1 ? html`<button type="button" class="btn btn--sm btn--ghost" onClick=${() => confirmAll(waiting)}>
           <${Icon} name="check" size=${18} />รับรองทั้งสัปดาห์ (${waiting.length})</button>` : ''}
       </div>
       ${open ? days.map((d) => html`<div class="log-day" key=${d.day}>
@@ -132,7 +134,7 @@ function LogWeeks({ logs, staff, onEdit }) {
 }
 
 function MyLog() {
-  const { db, me, now, cal, openProfile } = useApp();
+  const { db, me, now, cal } = useApp();
   const [sheet, setSheet] = useState(null); // null | {} (new) | an entry (edit)
   const mine = Object.values(db.logs || {}).filter((l) => l.by === me.uid).sort(compareLogs);
   const today = dateKey(now);
@@ -141,11 +143,9 @@ function MyLog() {
   const mentors = mentorsOf(me).map((id) => db.users[id]).filter((u) => isStaff(u)).map(displayName);
   return html`<section class="page">
     <header class="page-head"><div><h1>บันทึกงานที่ทำ</h1>
-      <p class="page-sub">งานที่ทำจริงแต่ไม่ได้มาเป็นใบสั่งงาน เช่น พี่สั่งปากเปล่า หัวหน้าเรียกไปช่วย ไปอบรม ลงไว้เองแล้วให้พี่รับรอง</p></div></header>
-    ${mine.length ? html`<p class="log-sum"><span><b>${mine.length}</b> รายการ</span><span class="txt-ok">รับรองแล้ว <b>${ok}</b></span>
-      <span class="txt-wait">รอพี่รับรอง <b>${mine.length - ok}</b></span></p>` : ''}
-    <p class="hint-line">${mentors.length ? `พี่ที่ดูแลเรา (${mentors.join(', ')}) จะเห็นบันทึกในเมนูของพี่ แล้วกดรับรอง`
-      : html`ยังไม่ได้เลือกพี่ที่ดูแล บันทึกจะไปรอที่พี่ทุกคน <button type="button" class="link-btn link-btn--inline" onClick=${openProfile}>เลือกพี่ที่ดูแล</button>`}</p>
+      <p class="page-sub">งานที่ทำจริงแต่ไม่ได้มาเป็นใบสั่งงาน เช่น พี่สั่งปากเปล่า หัวหน้าเรียกไปช่วย ไปอบรม ลงไว้เองเป็นหลักฐานการทำงาน</p></div></header>
+    ${mine.length ? html`<p class="log-sum"><span><b>${mine.length}</b> รายการ</span>${ok ? html`<span class="txt-ok">พี่รับรองแล้ว <b>${ok}</b></span>` : ''}</p>` : ''}
+    <p class="hint-line">ลงได้เลย ไม่ต้องรอพี่กดอะไร ${mentors.length ? `พี่ที่ดูแลเรา (${mentors.join(', ')}) ` : 'พี่ผู้ดูแล'}เปิดดูได้ที่เมนูบันทึก ถ้าว่างจะกดรับรองให้ก็ได้</p>
     ${workday && mine.length && !mine.some((l) => l.day === today) ? html`<p class="callout callout--wait callout--row"><span>วันนี้ยังไม่ได้บันทึกงาน</span>
       <button type="button" class="btn btn--sm btn--ghost" onClick=${() => setSheet({})}>บันทึกงานวันนี้</button></p>` : ''}
     ${mine.length ? html`<${LogWeeks} logs=${mine} onEdit=${setSheet} />`
@@ -159,20 +159,20 @@ function MyLog() {
 function StaffLogs() {
   const { db, me, route, go, students } = useApp();
   const interns = students.filter(canLog);
-  const pend = logsToConfirm(db, me.uid);
-  const count = (uid) => pend.filter((l) => l.by === uid).length;
+  const all = Object.values(db.logs || {});
+  const count = (uid) => all.filter((l) => l.by === uid).length;
   const minding = (u) => (mentorsOf(u).includes(me.uid) ? 1 : 0);
-  const order = [...interns].sort((a, b) => (minding(b) - minding(a)) || (count(b.uid) - count(a.uid)) || displayName(a).localeCompare(displayName(b), 'th'));
+  const order = [...interns].sort((a, b) => (minding(b) - minding(a)) || displayName(a).localeCompare(displayName(b), 'th'));
   const fromRoute = /^log-(.+)$/.exec(route || '');
-  const uid = (fromRoute && db.users[fromRoute[1]] && fromRoute[1]) || (pend[0] && pend[0].by) || (order[0] && order[0].uid);
+  const uid = (fromRoute && db.users[fromRoute[1]] && fromRoute[1]) || (order[0] && order[0].uid);
   const u = uid && db.users[uid];
-  const list = Object.values(db.logs || {}).filter((l) => l.by === uid).sort(compareLogs);
+  const list = all.filter((l) => l.by === uid).sort(compareLogs);
   return html`<section class="page">
     <header class="page-head"><div><h1>บันทึกงานของน้อง</h1>
-      <p class="page-sub">งานที่น้องทำจริงแต่ไม่ได้มาเป็นใบสั่งงาน น้องลงเองว่าใครสั่ง ทำอะไร ถ้าตรงกับที่ทำจริง กดรับรอง</p></div></header>
+      <p class="page-sub">งานที่น้องทำจริงแต่ไม่ได้มาเป็นใบสั่งงาน น้องลงเองเป็นหลักฐานว่าใครสั่ง ทำอะไร พี่ไม่ต้องกดอะไร ถ้าว่างและตรงกับที่ทำจริง กดรับรองให้ได้</p></div></header>
     ${order.length ? html`<div class="chips" role="group" aria-label="เลือกน้อง">${order.map((x) => html`<button type="button" key=${x.uid}
       class=${`chip chip--sm${x.uid === uid ? ' is-on' : ''}`} aria-pressed=${x.uid === uid} onClick=${() => go(`log-${x.uid}`)}>
-      ${displayName(x)}${count(x.uid) ? html`<b class="chip-count" aria-label=${`รอรับรอง ${count(x.uid)} รายการ`}>${count(x.uid)}</b>` : ''}
+      ${displayName(x)}${count(x.uid) ? html`<span class="chip-n">${count(x.uid)}</span>` : ''}
       ${minding(x) ? html`<small class="chip-note">น้องที่เราดูแล</small>` : ''}</button>`)}</div>` : ''}
     ${!u ? html`<${Empty} title="ยังไม่มีน้องฝึกงานในระบบ" />`
       : list.length ? html`<${LogWeeks} key=${uid} logs=${list} staff />`
@@ -217,7 +217,7 @@ function LogSheet({ log, onClose }) {
     setBusy(true);
     try {
       await store.saveLog(log ? log.id : null, f, { keep, images });
-      toast(log ? (log.okBy ? 'แก้บันทึกแล้ว ต้องให้พี่รับรองใหม่' : 'แก้บันทึกแล้ว') : 'บันทึกงานแล้ว รอพี่รับรอง', 'ok');
+      toast(log ? (log.okBy ? 'แก้บันทึกแล้ว การรับรองของพี่หายไป' : 'แก้บันทึกแล้ว') : 'บันทึกงานแล้ว', 'ok');
       onClose();
     } catch (ex) { setErr(ex.message); setBusy(false); }
   };
@@ -230,7 +230,7 @@ function LogSheet({ log, onClose }) {
       <span class="foot-space"></span>
       <button type="button" class="btn btn--primary" disabled=${busy} onClick=${save}>${busy ? 'กำลังบันทึก…' : 'บันทึก'}</button>`}>
     <div class="form">
-      ${log && log.okBy ? html`<p class="callout callout--wait">พี่รับรองบันทึกนี้แล้ว ถ้าบันทึกการแก้ไข ต้องให้พี่รับรองใหม่</p>` : ''}
+      ${log && log.okBy ? html`<p class="callout callout--wait">พี่รับรองบันทึกนี้แล้ว ถ้าบันทึกการแก้ไข การรับรองจะหายไป</p>` : ''}
       <div class="form-pair">
         <${Field} id="lg-day" label="วันที่ทำ" hint=${f.day && f.day < today ? 'ลงย้อนหลังได้ พี่จะเห็นว่าเขียนวันไหน' : ''}>
           <input id="lg-day" type="date" min=${dateKey(cal.start)} max=${today} value=${f.day} onInput=${set('day')} /><//>

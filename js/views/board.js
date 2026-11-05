@@ -1,7 +1,7 @@
 // "ภาพรวม" — the supervisor's board: work waiting for him first, then each intern's lamps.
 import { html } from '../vendor/preact-htm.js';
 import { useApp } from '../ctx.js';
-import { stateOf, isLate, tally, toLocalDate, displayName, fmtTime, fmtDay, logsToConfirm, isStaff } from '../model.js';
+import { stateOf, isLate, tally, toLocalDate, displayName, fmtTime, fmtDay } from '../model.js';
 import { Avatar } from '../ui.js';
 import { StaffRow, StateLegend } from './rows.js';
 
@@ -23,7 +23,7 @@ function Queue({ title, items, empty, tone }) {
 }
 
 export function Board() {
-  const { db, me, now, students, go, setTaskFilter } = useApp();
+  const { db, now, students, go, setTaskFilter } = useApp();
   const tasks = Object.values(db.tasks);
   const counts = Object.fromEntries(students.map((u) => [u.uid, { late: 0, changes: 0, submitted: 0, assigned: 0, ack: 0, approved: 0 }]));
   for (const t of tasks) {
@@ -40,16 +40,9 @@ export function Board() {
   const unseen = withTally.filter((x) => x.k.assigned && !x.k.late).map((x) => x.t).sort(byDue);
   const recent = (db.activity || []).slice(0, 8);
   const openStudent = (uid, status) => { setTaskFilter({ uid, status }); go('tasks'); };
-  // work the interns wrote down themselves, waiting for this พี่ to confirm
-  const toConfirm = isStaff(me) ? logsToConfirm(db, me.uid) : [];
-  const logBy = students.map((u) => ({ u, n: toConfirm.filter((l) => l.by === u.uid).length })).filter((x) => x.n);
 
   return html`<section class="page page--wide">
     <header class="page-head"><h1>ภาพรวม</h1></header>
-    ${logBy.length ? html`<div class="callout callout--wait callout--row log-callout">
-      <span>น้องลงบันทึกงานที่ทำเอง รอพี่รับรอง</span>
-      <span class="chips">${logBy.map(({ u, n }) => html`<button type="button" class="chip chip--sm" key=${u.uid} onClick=${() => go(`log-${u.uid}`)}>
-        ${displayName(u)}<b class="chip-count">${n}</b></button>`)}</span></div>` : ''}
 
     <div class="board-cols">
       <${Queue} title="รอตรวจ" items=${review} empty="ไม่มีงานรอตรวจ" tone=${review.length ? 'wait' : ''} />

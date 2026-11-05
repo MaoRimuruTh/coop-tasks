@@ -861,7 +861,6 @@ button.g-title:hover { text-decoration: underline; text-underline-offset: 3px; }
 .log-sum { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 14px; color: var(--ink-2); }
 .log-sum b { font: 600 15px var(--f-mono); }
 .txt-ok { color: var(--ok-ink); }
-.txt-wait { color: var(--wait-ink); }
 .log-weeks { display: flex; flex-direction: column; gap: 18px; }
 .log-week { display: flex; flex-direction: column; gap: 10px; }
 .log-week-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
@@ -875,7 +874,7 @@ button.g-title:hover { text-decoration: underline; text-underline-offset: 3px; }
 .log-day-head { font-size: 14px; font-weight: 700; color: var(--ink-2); }
 .log-day-head small { font-weight: 500; color: var(--ink-3); margin-left: 8px; }
 .log-list { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
-.log-item { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px 10px 17px; border-top: 1px solid var(--line); box-shadow: inset 3px 0 0 var(--wait); }
+.log-item { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px 10px 17px; border-top: 1px solid var(--line); box-shadow: inset 3px 0 0 var(--line-strong); }
 .log-item:first-child { border-top: 0; }
 .log-item.is-ok { box-shadow: inset 3px 0 0 var(--ok); }
 .log-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -894,9 +893,8 @@ button.g-title:hover { text-decoration: underline; text-underline-offset: 3px; }
 .log-ok { background: var(--ok-soft); color: var(--ok-ink); }
 .log-wait { background: var(--wait-soft); color: var(--wait-ink); }
 .pill--run { background: var(--run-soft); border-color: transparent; color: var(--run-ink); }
-.chip-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; margin-left: 6px; border-radius: 10px; background: var(--stop); color: var(--on-color); font: 700 12px/20px var(--f-mono); }
 .attach-btn.is-off { opacity: .5; pointer-events: none; }
-.tick-note--wait { color: var(--wait-ink); }
+.chip-n { font: 600 12px var(--f-mono); color: var(--ink-3); margin-left: 6px; }
+.chip.is-on .chip-n { color: inherit; opacity: .8; }
 .day-log { font-weight: 600; }
 .day-table tr.is-self td.c-work { background: color-mix(in srgb, var(--surface-2) 70%, transparent); }
-.log-callout { flex-wrap: wrap; }

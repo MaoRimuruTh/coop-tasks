@@ -1,6 +1,6 @@
 // App shell: data subscription, hash routing, navigation, demo persona switcher, toasts.
 import { html, render, useEffect, useMemo, useState, useCallback, useRef } from './vendor/preact-htm.js';
-import { calendar, weekOf, displayName, isStudent, isStaff, canAssign, canReview, isInternAdmin, assignerOpen, assignerUntil, fmtDay, fmtTime, fmtRange, TH_DAYS, stateOf, isLate, isUnread, unreadCount, otherOf, talkUnread, woNumber, canLog, logsToConfirm } from './model.js';
+import { calendar, weekOf, displayName, isStudent, isStaff, canAssign, canReview, isInternAdmin, assignerOpen, assignerUntil, fmtDay, fmtTime, fmtRange, TH_DAYS, stateOf, isLate, isUnread, unreadCount, otherOf, talkUnread, woNumber, canLog } from './model.js';
 import { Icon } from './ui.js';
 import { Ctx } from './ctx.js';
 import { MyTasks } from './views/my.js';
@@ -23,8 +23,8 @@ function tabsFor(me, badges, now) {
   const t = [];
   if (isStudent(me)) t.push({ id: 'my', label: 'งานของฉัน', icon: 'inbox', badge: badges.mine });
   if (canAssign(me, now)) t.push({ id: 'board', label: 'ภาพรวม', icon: 'board', badge: badges.review }, { id: 'tasks', label: 'งานทั้งหมด', icon: 'list' });
-  // work the intern did without a work order: he writes it down, a พี่ confirms it
-  if (isStaff(me)) t.push({ id: 'log', label: 'บันทึกงานของน้อง', short: 'บันทึก', icon: 'clip', badge: badges.log });
+  // work the intern did without a work order: he writes it down; a พี่ may look and confirm, nobody is asked to
+  if (isStaff(me)) t.push({ id: 'log', label: 'บันทึกงานของน้อง', short: 'บันทึก', icon: 'clip' });
   else if (canLog(me)) t.push({ id: 'log', label: 'บันทึกงานที่ทำ', short: 'บันทึก', icon: 'clip' });
   // private chat: interns with staff, staff with interns
   if (isStudent(me) || isStaff(me)) t.push({ id: 'chat', label: 'แชท', icon: 'chat', badge: badges.chat });
@@ -142,7 +142,7 @@ function App({ store }) {
   if (store.mode !== 'demo' && !me) return html`<${SignIn} store=${store} />`;
   if (me && (me.role === 'pending' || me.role === 'blocked')) return html`<${Waiting} store=${store} me=${me} />`;
 
-  const badges = { mine: 0, review: 0, chat: unreadCount(db.chats, me.uid), log: isStaff(me) ? logsToConfirm(db, me.uid).length : 0 };
+  const badges = { mine: 0, review: 0, chat: unreadCount(db.chats, me.uid) };
   for (const t of Object.values(db.tasks)) {
     if (t.assignees.includes(me.uid)) {
       const s = stateOf(t, me.uid);
