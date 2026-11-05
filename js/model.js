@@ -294,6 +294,45 @@ export const isUnread = (chat, uid) => !!chat && (chat.members || []).includes(u
   && (chat.lastAt || 0) > ((chat.seen || {})[uid] || 0);
 export const unreadCount = (chats, uid) => Object.values(chats || {}).filter((c) => isUnread(c, uid)).length;
 
+// ---------- บันทึกงานที่ทำ: work an intern logs himself (asked by word of mouth, training, helping out) ----------
+// Never a work order: it carries a "บันทึกเอง" mark, and a พี่ confirms it; any edit by the intern takes the confirmation away.
+export const LOG_SLOTS = [
+  { value: 'am', label: 'ช่วงเช้า', short: 'เช้า' },
+  { value: 'pm', label: 'ช่วงบ่าย', short: 'บ่าย' },
+  { value: 'day', label: 'ทั้งวัน', short: 'ทั้งวัน' },
+];
+export const slotLabel = (v) => (LOG_SLOTS.find((s) => s.value === v) || LOG_SLOTS[2]).short;
+export const LOG_STATUS = { done: 'เสร็จแล้ว', doing: 'ยังไม่เสร็จ' };
+export const MAX_LOG_PHOTOS = 4;
+/** Interns keep a log, the admin who is also an intern too. */
+export const canLog = (u) => isStudent(u) && ['student', 'admin'].includes(u.role);
+const SLOT_RANK = { am: 0, pm: 1, day: 2 };
+/** Newest day first; within a day morning, afternoon, whole day, then the order they were written in. */
+export const compareLogs = (a, b) => (a.day !== b.day ? (a.day < b.day ? 1 : -1)
+  : ((SLOT_RANK[a.slot] ?? 3) - (SLOT_RANK[b.slot] ?? 3)) || ((a.at || 0) - (b.at || 0)));
+/** Written down on a later day than the work itself (the server time of writing cannot be set by hand). */
+export const loggedLate = (log) => !!log.at && dateKey(new Date(log.at)) !== log.day;
+/** Entries a พี่ is asked to confirm: from the interns he looks after, and from interns nobody looks after yet. */
+export const logsToConfirm = (db, staffId) => Object.values(db.logs || {}).filter((l) => {
+  if (l.okBy) return false;
+  const u = (db.users || {})[l.by];
+  if (!canLog(u)) return false;
+  const ids = mentorsOf(u).filter((id) => isStaff((db.users || {})[id]));
+  return ids.length ? ids.includes(staffId) : true;
+});
+/** Trimmed, checked fields of an entry (the same limits as firestore.rules). */
+export function cleanLog(input, today) {
+  const s = (v, n) => String(v ?? '').trim().slice(0, n);
+  const day = String(input.day || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error('เลือกวันที่ทำงานนี้');
+  if (today && day > today) throw new Error('ลงล่วงหน้าไม่ได้ บันทึกได้เฉพาะงานที่ทำไปแล้ว');
+  const title = s(input.title, 200);
+  if (!title) throw new Error('ใส่ว่าทำงานอะไร');
+  return { day, slot: SLOT_RANK[input.slot] !== undefined ? input.slot : 'day', time: s(input.time, 20), title,
+    detail: s(input.detail, 2000), from: s(input.from, 80), status: input.status === 'doing' ? 'doing' : 'done',
+    planId: input.planId || null, proof: s(input.proof, 1000) };
+}
+
 // ---------- plan: big items (หัวข้องาน) with optional sub-items (หัวข้อย่อย) ----------
 export const planSort = (a, b) => (Math.min(...a.weeks) - Math.min(...b.weeks)) || ((a.order ?? 99) - (b.order ?? 99));
 export const cleanWeeks = (w) => [...new Set(w)].filter((n) => n >= 1 && n <= 16).sort((a, b) => a - b);

@@ -30,6 +30,7 @@ const PATHS = {
   send: 'M4 12l16-8-6 16-2.5-6.5z',
   image: 'M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15.5 9.5h.01',
   chat: 'M4 5h16v11h-9l-5 4v-4H4zM8 9.5h8M8 12.5h5',
+  clip: 'M9 3.5h6v3H9zM7.5 5H5v16h14V5h-2.5M8.5 13.5l2.5 2.5 4.5-5',
   lock: 'M6 11h12v9H6zM8.5 11V8a3.5 3.5 0 017 0v3',
 };
 

@@ -1,14 +1,18 @@
 // "เดือนที่ n" — the month's tick table (big items + sub-items, weeks in yellow, week count)
-// and the daily log (Mon–Sat: work given that day, knew it ✓, sent it ✓) for one intern. Printable.
+// and the daily log (Mon–Sat: work given that day, knew it ✓, sent it ✓) for one intern, with the work he wrote
+// down himself (บันทึกเอง) under the day he did it. Printable.
 import { html, useState } from '../vendor/preact-htm.js';
 import { useApp } from '../ctx.js';
 import { formRows, monthWeeks, canAssign, displayName, fmtRange, fmtDate, toLocalDate, dateKey, addDays, stateOf, isLate,
-  woNumber, TH_DAYS_SHORT, TH_MONTHS, weekOf, planLabel } from '../model.js';
+  woNumber, TH_DAYS_SHORT, TH_MONTHS, weekOf, planLabel, compareLogs, slotLabel } from '../model.js';
 import { Icon, Empty } from '../ui.js';
 
-const daysOf = (w) => {
+// Mon–Sat; a Sunday only when the intern logged work on it
+const daysOf = (w, sunday = () => false) => {
   const out = [];
-  for (let d = new Date(w.from); d <= w.to; d = addDays(d, 1)) if (d.getDay() !== 0) out.push(new Date(d));
+  for (let d = new Date(w.from); d <= w.to; d = addDays(d, 1)) if (d.getDay() !== 0 || sunday(d)) out.push(new Date(d));
+  const next = addDays(w.to, 1);
+  if (next.getDay() === 0 && sunday(next)) out.push(next);
   return out;
 };
 
@@ -42,7 +46,14 @@ export function MonthView({ m, onEdit }) {
     (byDay[k] = byDay[k] || []).push(t);
   }
   Object.values(byDay).forEach((list) => list.sort((a, b) => (a.created < b.created ? -1 : 1)));
-  const given = nums.reduce((n, wn) => n + daysOf(cal.weeks[wn - 1]).reduce((x, d) => x + (byDay[dateKey(d)] || []).length, 0), 0);
+  // work he wrote down himself, under the day he did it
+  const logsByDay = {};
+  for (const l of Object.values(db.logs || {})) if (l.by === student.uid) (logsByDay[l.day] = logsByDay[l.day] || []).push(l);
+  Object.values(logsByDay).forEach((list) => list.sort(compareLogs)); // one day: morning, afternoon, whole day
+  const sunday = (d) => !!logsByDay[dateKey(d)];
+  const sum = (pick) => nums.reduce((n, wn) => n + daysOf(cal.weeks[wn - 1], sunday).reduce((x, d) => x + (pick[dateKey(d)] || []).length, 0), 0);
+  const given = sum(byDay);
+  const selfN = sum(logsByDay);
   const canPrint = store.mode !== 'demo';
 
   return html`<div class="month">
@@ -83,19 +94,30 @@ export function MonthView({ m, onEdit }) {
     </section>
 
     <section class="month-sec">
-      <h3>บันทึกรายวัน <small>งานที่ได้รับเดือนนี้ ${given} งาน</small></h3>
+      <h3>บันทึกรายวัน <small>ใบสั่งงาน ${given} งาน${selfN ? ` · บันทึกเอง ${selfN} รายการ` : ''}</small></h3>
       <div class="tick-scroll">
         <table class="day-table">
           <colgroup><col class="c-day" /><col class="c-work" /><col class="c-chk" /><col class="c-chk" /></colgroup>
-          <thead><tr><th scope="col">วันที่</th><th scope="col">งานที่มอบหมาย</th><th scope="col">รู้งานแล้ว</th><th scope="col">ส่งงานแล้ว</th></tr></thead>
+          <thead><tr><th scope="col">วันที่</th><th scope="col">งานที่ได้รับ / ที่ทำ</th><th scope="col">รู้งานแล้ว</th><th scope="col">ส่งงานแล้ว</th></tr></thead>
           ${weeks.map((w) => html`<tbody key=${w.n}>
             <tr class="day-week"><th colspan="4" scope="rowgroup">สัปดาห์ที่ ${w.n} <small>${fmtRange(w.from, w.to)}</small></th></tr>
-            ${daysOf(w).map((d) => {
+            ${daysOf(w, sunday).map((d) => {
               const k = dateKey(d);
               const list = byDay[k] || [];
-              const dayCell = html`<th scope="row" class=${`c-day${k === todayKey ? ' is-today' : ''}`} rowspan=${Math.max(1, list.length)}>${TH_DAYS_SHORT[d.getDay()]} ${d.getDate()}<span class="d-mon"> ${TH_MONTHS[d.getMonth()]}</span></th>`;
-              if (!list.length) return html`<tr key=${k} class="is-empty">${dayCell}<td class="c-work">—</td><td class="c-chk"></td><td class="c-chk"></td></tr>`;
-              return list.map((t, i) => {
+              const mine = logsByDay[k] || [];
+              const dayCell = html`<th scope="row" class=${`c-day${k === todayKey ? ' is-today' : ''}`} rowspan=${Math.max(1, list.length + mine.length)}>${TH_DAYS_SHORT[d.getDay()]} ${d.getDate()}<span class="d-mon"> ${TH_MONTHS[d.getMonth()]}</span></th>`;
+              if (!list.length && !mine.length) return html`<tr key=${k} class="is-empty">${dayCell}<td class="c-work">—</td><td class="c-chk"></td><td class="c-chk"></td></tr>`;
+              const selfRows = mine.map((l, j) => html`<tr key=${`${k}-${l.id}`} class="is-self">
+                  ${!list.length && j === 0 ? dayCell : ''}
+                  <td class="c-work">
+                    <span class="day-log">${l.title}</span> <span class="self-tag">บันทึกเอง</span>
+                    <small class="day-wo-meta">${[`${slotLabel(l.slot)}${l.time ? ` ${l.time}` : ''}`, l.from ? `สั่งโดย ${l.from}` : '', l.planId && db.plans[l.planId] ? db.plans[l.planId].title : ''].filter(Boolean).join(' · ')}</small>
+                  </td>
+                  <td class="c-chk"><span class="tick is-on">✓</span></td>
+                  <td class="c-chk"><span class=${`tick${l.status === 'done' ? ' is-on' : ''}`}>${l.status === 'done' ? '✓' : ''}</span>
+                    <small class=${`tick-note${l.okBy ? '' : ' tick-note--wait'}`}>${l.status === 'doing' ? 'ยังไม่เสร็จ · ' : ''}${l.okBy ? 'พี่รับรอง' : 'รอรับรอง'}</small></td>
+                </tr>`);
+              return [...list.map((t, i) => {
                 const s = stateOf(t, student.uid);
                 const late = isLate(t, student.uid, now);
                 return html`<tr key=${`${k}-${t.id}`}>
@@ -108,7 +130,7 @@ export function MonthView({ m, onEdit }) {
                   <td class="c-chk"><span class=${`tick${s !== 'assigned' ? ' is-on' : ''}`}>${s !== 'assigned' ? '✓' : ''}</span></td>
                   <td class="c-chk"><${SendMark} s=${s} /></td>
                 </tr>`;
-              });
+              }), ...selfRows];
             })}
           </tbody>`)}
         </table>

@@ -1,8 +1,8 @@
 // Demo store: same interface as the Firebase store, but everything lives in this
 // browser (memory + localStorage). Used for the preview before Firebase is set up.
-import { addDays, stamp, stampS, dateKey, displayName, woNumber, ROLE_TH, shortTitle, canAssign, canReview, isInternAdmin, normCode, fmtTime, isStudent, isStaff, mentorLog, toggleMentor, MAX_MENTORS, canChat, pairId, isActive, groupHasStaff, groupAutoName, MAX_GROUP, canEditMsg, EDIT_MINUTES } from './model.js';
+import { addDays, stamp, stampS, dateKey, displayName, woNumber, ROLE_TH, shortTitle, canAssign, canReview, isInternAdmin, normCode, fmtTime, isStudent, isStaff, mentorLog, toggleMentor, MAX_MENTORS, canChat, pairId, isActive, groupHasStaff, groupAutoName, MAX_GROUP, canEditMsg, EDIT_MINUTES, canLog, cleanLog, MAX_LOG_PHOTOS } from './model.js';
 
-const KEY = 'coop-demo-v6';
+const KEY = 'coop-demo-v7';
 
 function svgPhoto(label, hue) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480">
@@ -87,13 +87,32 @@ function seed() {
     f2: { id: 'f2', name: 'safety-sign.jpg', type: 'image/svg+xml', data: svgPhoto('รูปตัวอย่าง · ใบเซ็นรับทราบ', 30) },
     f3: { id: 'f3', name: 'safety-sign.jpg', type: 'image/svg+xml', data: svgPhoto('รูปตัวอย่าง · ใบเซ็นรับทราบ', 150) },
     f4: { id: 'f4', name: 'qc-table.jpg', type: 'image/svg+xml', data: svgPhoto('รูปตัวอย่าง · ตารางค่าการวัด', 260) },
+    f5: { id: 'f5', name: 'belt.jpg', type: 'image/svg+xml', data: svgPhoto('รูปตัวอย่าง · สายพานใหม่', 95) },
+    f6: { id: 'f6', name: 'motor.jpg', type: 'image/svg+xml', data: svgPhoto('รูปตัวอย่าง · วัดกระแสมอเตอร์', 200) },
+  };
+  // บันทึกงานที่ทำ: work the interns logged themselves (not work orders)
+  const day = (n) => dateKey(addDays(now, n));
+  const logs = {
+    l1: { id: 'l1', by: 'u-nat', day: day(-2), slot: 'am', time: '08:30–12:00', title: 'ช่วยพี่โอ๊ตเปลี่ยนสายพานเครื่องตัดเหล็ก', from: 'พี่โอ๊ต', status: 'done',
+      detail: 'ถอดฝาครอบ คลายตัวตั้งความตึง เปลี่ยนสายพานร่อง B ตั้งความตึงใหม่ แล้วเดินเครื่องทดสอบ 10 นาที', planId: 'p1', proof: '', photos: ['f5'],
+      at: msAt(-2, 12, 5), okBy: 'u-oat', okAt: msAt(-1, 9, 10) },
+    l2: { id: 'l2', by: 'u-nat', day: day(-2), slot: 'pm', time: '', title: 'อบรมความปลอดภัยงานไฟฟ้า ไปแทนพนักงานที่ลา', from: 'หัวหน้าแผนก', status: 'done',
+      detail: 'เรื่อง LOTO การตัดแยกพลังงานก่อนซ่อม และการใช้อุปกรณ์ป้องกัน ทำแบบทดสอบท้ายอบรม', planId: 'p1', proof: '', photos: [],
+      at: msAt(-2, 17, 20), okBy: null, okAt: 0 },
+    l3: { id: 'l3', by: 'u-nat', day: day(-1), slot: 'day', time: '', title: 'วัดกระแสมอเตอร์ 3 เฟส 2 ตัว แล้วบันทึกลง Excel', from: 'พี่เอก', status: 'done',
+      detail: 'วัดกระแสทีละเฟสด้วยแคลมป์มิเตอร์ เทียบกับค่าบนป้าย ทุกตัวอยู่ในเกณฑ์', planId: null, proof: 'ไฟล์ บันทึกกระแสมอเตอร์.xlsx', photos: ['f6'],
+      at: msAt(0, 8, 15), okBy: null, okAt: 0 },
+    l4: { id: 'l4', by: 'u-nat', day: day(0), slot: 'am', time: '', title: 'ทำรายการอุปกรณ์จากแบบไฟฟ้า หารุ่นและยี่ห้อ', from: 'พี่เอก', status: 'doing',
+      detail: 'ได้ 18 จาก 40 รายการ พรุ่งนี้ทำต่อ', planId: null, proof: '', photos: [], at: msAt(0, 11, 50), okBy: null, okAt: 0 },
+    l5: { id: 'l5', by: 'u-ton', day: day(-1), slot: 'pm', time: '13:00–16:30', title: 'ช่วยจัดสต็อกอะไหล่ในห้องซ่อมบำรุง', from: 'พี่โอ๊ต', status: 'done',
+      detail: '', planId: null, proof: '', photos: [], at: msAt(-1, 16, 40), okBy: null, okAt: 0 },
   };
   return {
     v: 1, actor: 'u-ek', counter: 8, join: { supervisor: 'DEMOSTAF', student: 'DEMOSTUD' },
     settings: { startDate: '2026-11-02', endDate: '2027-02-19', company: 'บริษัท ไทยเซ็นทรัล เมคคานิคส์ จำกัด', university: 'มหาวิทยาลัยทักษิณ',
       companyAddress: '', companyPhone: '', companyFax: '', companyHours: 'จันทร์–ศุกร์ 08:00–17:00, เสาร์ 08:00–17:00',
       workDays: 'จันทร์–เสาร์', workStart: '08:00', workEnd: '18:00', breakStart: '12:00', breakEnd: '13:00' },
-    users, plans, tasks, subs, files,
+    users, plans, tasks, subs, files, logs,
     comments: { t2: [
       { id: 'c1', by: 'u-ek', text: 'วัด 4 จุดตามแบบนะ จุดที่ 3 ใช้ไมโครมิเตอร์ ไม่ใช้เวอร์เนียร์', at: msAgo(55) },
       { id: 'c2', by: 'u-nat', text: 'ครับพี่ แล้วจดค่าเป็นทศนิยม 2 หรือ 3 ตำแหน่งครับ', at: msAgo(50) },
@@ -172,7 +191,11 @@ export function createDemoStore() {
         const last = l[l.length - 1];
         return [tid, { n: l.length, lastAt: last.at, lastBy: last.by, lastText: last.deleted ? 'ยกเลิกความเห็น' : last.text.slice(0, 140), people: [...new Set(l.map((c) => c.by))] }];
       }));
-      return { ...db, chats: db.chats || {}, chatsLoaded: true, talk, commentSeen: (db.seen || {})[db.actor] || {}, talkLoaded: true, me: me(), persistOk };
+      // like the real rules: an intern sees only his own log, staff and the admin see everyone's
+      const viewer = me();
+      const all = db.logs || {};
+      const logs = viewer && !isStaff(viewer) && viewer.role !== 'admin' ? Object.fromEntries(Object.entries(all).filter(([, l]) => l.by === viewer.uid)) : all;
+      return { ...db, chats: db.chats || {}, chatsLoaded: true, talk, commentSeen: (db.seen || {})[db.actor] || {}, talkLoaded: true, logs, logsLoaded: true, me: me(), persistOk };
     },
 
     // demo-only helpers
@@ -318,6 +341,46 @@ export function createDemoStore() {
       emit();
     },
     reset() { db = seed(); emit(); },
+
+    // บันทึกงานที่ทำ (same checks as the Firebase store)
+    async saveLog(id, input, { keep = [], images = [] } = {}) {
+      must(canLog(me()), 'บันทึกงานที่ทำมีไว้สำหรับน้องฝึกงาน');
+      const old = id ? (db.logs || {})[id] : null;
+      must(!id || (old && old.by === db.actor), 'แก้ได้เฉพาะบันทึกของตัวเอง');
+      const data = cleanLog(input, dateKey(new Date()));
+      const kept = old ? old.photos.filter((p) => keep.includes(p)) : [];
+      must(kept.length + images.length <= MAX_LOG_PHOTOS, `แนบรูปได้ไม่เกิน ${MAX_LOG_PHOTOS} รูปต่อบันทึก`);
+      const added = images.map((img) => {
+        const fid = uid('f');
+        db.files = { ...db.files, [fid]: { id: fid, name: img.name, type: img.type, data: img.data } };
+        return fid;
+      });
+      const lid = id || uid('l');
+      db.logs = { ...(db.logs || {}), [lid]: old
+        ? { ...old, ...data, photos: [...kept, ...added], editedAt: Date.now(), okBy: null, okAt: 0 }
+        : { id: lid, ...data, photos: added, by: db.actor, at: Date.now(), okBy: null, okAt: 0 } };
+      emit();
+      return lid;
+    },
+    async deleteLog(id) {
+      const l = (db.logs || {})[id];
+      must(l && l.by === db.actor, 'ลบได้เฉพาะบันทึกของตัวเอง');
+      must(!l.okBy, 'พี่รับรองบันทึกนี้แล้ว ลบไม่ได้ ถ้ามีอะไรผิดให้แก้ไข แล้วให้พี่รับรองใหม่');
+      const { [id]: _gone, ...rest } = db.logs;
+      db.logs = rest;
+      emit();
+    },
+    async confirmLogs(ids, on = true) {
+      must(isStaff(me()), 'รับรองบันทึกได้เฉพาะพี่ผู้ดูแล');
+      const list = ids.map((x) => (db.logs || {})[x]).filter((l) => l && (on ? !l.okBy : !!l.okBy));
+      if (!list.length) return 0;
+      const at = Date.now();
+      db.logs = { ...db.logs, ...Object.fromEntries(list.map((l) => [l.id, { ...l, okBy: on ? db.actor : null, okAt: on ? at : 0 }])) };
+      const who = [...new Set(list.map((l) => displayName(db.users[l.by])))].join(', ');
+      log(`${on ? 'รับรอง' : 'ยกเลิกการรับรอง'}บันทึกงานของ ${who} ${list.length} รายการ`, null);
+      emit();
+      return list.length;
+    },
 
     async createTask(input) {
       mayAssign(); notOwn(input.assignees);

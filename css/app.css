@@ -856,3 +856,47 @@ button.g-title:hover { text-decoration: underline; text-underline-offset: 3px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- บันทึกงานที่ทำ: work the intern wrote down himself, confirmed by a พี่ ---------- */
+.log-sum { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 14px; color: var(--ink-2); }
+.log-sum b { font: 600 15px var(--f-mono); }
+.txt-ok { color: var(--ok-ink); }
+.txt-wait { color: var(--wait-ink); }
+.log-weeks { display: flex; flex-direction: column; gap: 18px; }
+.log-week { display: flex; flex-direction: column; gap: 10px; }
+.log-week-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.log-week-btn { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; min-height: 44px; border: 0; background: transparent; padding: 0; text-align: left; color: var(--ink); }
+.log-week-btn .icon { color: var(--ink-3); }
+.log-week-name { font-size: 16px; font-weight: 700; }
+.log-week-name small { font-size: 13px; font-weight: 500; color: var(--ink-3); margin-left: 8px; }
+.log-week-count { font-size: 13.5px; color: var(--ink-2); }
+.log-week-count b { font-weight: 600; }
+.log-day { display: flex; flex-direction: column; gap: 6px; }
+.log-day-head { font-size: 14px; font-weight: 700; color: var(--ink-2); }
+.log-day-head small { font-weight: 500; color: var(--ink-3); margin-left: 8px; }
+.log-list { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.log-item { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px 10px 17px; border-top: 1px solid var(--line); box-shadow: inset 3px 0 0 var(--wait); }
+.log-item:first-child { border-top: 0; }
+.log-item.is-ok { box-shadow: inset 3px 0 0 var(--ok); }
+.log-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.log-slot { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.log-title { font-weight: 600; font-size: 16.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.log-meta { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 13.5px; color: var(--ink-3); }
+.log-meta b { color: var(--ink-2); font-weight: 600; }
+.log-late { color: var(--wait-ink); }
+.log-detail { white-space: pre-wrap; overflow-wrap: anywhere; font: 400 15px/1.6 var(--f-read); }
+.log-detail a, .log-proof a { color: inherit; text-decoration: underline; overflow-wrap: anywhere; }
+.log-proof { display: flex; gap: 6px; align-items: flex-start; font-size: 14px; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.log-proof .icon { flex: none; margin-top: 3px; color: var(--ink-3); }
+.log-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 2px; }
+.self-tag { display: inline-flex; align-items: center; height: 22px; padding: 0 7px; border: 1px dashed var(--line-strong); border-radius: var(--r-sm); font-size: 12px; font-weight: 600; color: var(--ink-2); white-space: nowrap; vertical-align: 1px; }
+.log-ok, .log-wait { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; padding: 2px 8px; border-radius: var(--r-sm); }
+.log-ok { background: var(--ok-soft); color: var(--ok-ink); }
+.log-wait { background: var(--wait-soft); color: var(--wait-ink); }
+.pill--run { background: var(--run-soft); border-color: transparent; color: var(--run-ink); }
+.chip-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; margin-left: 6px; border-radius: 10px; background: var(--stop); color: var(--on-color); font: 700 12px/20px var(--f-mono); }
+.attach-btn.is-off { opacity: .5; pointer-events: none; }
+.tick-note--wait { color: var(--wait-ink); }
+.day-log { font-weight: 600; }
+.day-table tr.is-self td.c-work { background: color-mix(in srgb, var(--surface-2) 70%, transparent); }
+.log-callout { flex-wrap: wrap; }

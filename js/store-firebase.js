@@ -1,7 +1,7 @@
 // Firebase store: same interface as store-demo.js, backed by Firestore + Google sign-in.
 // Free Spark plan only: photos are shrunk on the phone and stored as Firestore documents
 // (Cloud Storage would need the paid Blaze plan).
-import { stampS, woNumber, displayName, ROLE_TH, shortTitle, canAssign, canReview, isInternAdmin, normCode, fmtTime, isStudent, isStaff, mentorLog, mentorsOf, toggleMentor, MAX_MENTORS, canChat, pairId, isActive, groupHasStaff, groupAutoName, MAX_GROUP } from './model.js';
+import { stampS, woNumber, displayName, ROLE_TH, shortTitle, canAssign, canReview, isInternAdmin, normCode, fmtTime, isStudent, isStaff, mentorLog, mentorsOf, toggleMentor, MAX_MENTORS, canChat, pairId, isActive, groupHasStaff, groupAutoName, MAX_GROUP, canLog, cleanLog, MAX_LOG_PHOTOS, dateKey } from './model.js';
 
 const SDK = 'https://www.gstatic.com/firebasejs/10.14.1';
 const DEFAULT_SETTINGS = { startDate: '2026-11-02', endDate: '2027-02-19', company: '', university: 'มหาวิทยาลัยทักษิณ',
@@ -42,7 +42,7 @@ export async function createFirebaseStore(config) {
   const ms = (v) => (v && typeof v.toMillis === 'function' ? v.toMillis() : typeof v === 'number' ? v : 0);
 
   const S = { me: null, users: {}, plans: {}, tasks: {}, progress: {}, settings: DEFAULT_SETTINGS, activity: [], join: null, chats: {}, chatOff: false,
-    talk: {}, seen: {}, talkLoaded: false, online: navigator.onLine, loaded: false };
+    talk: {}, seen: {}, talkLoaded: false, logs: {}, logsLoaded: false, online: navigator.onLine, loaded: false };
   const listeners = new Set();
   const subIndex = {}; // subId -> taskId (filled by subsFor)
   const newNos = {}; // taskId -> work-order number, for tasks created on this phone
@@ -57,7 +57,7 @@ export async function createFirebaseStore(config) {
     const tasks = {};
     for (const [id, t] of Object.entries(S.tasks)) tasks[id] = { ...t, state: S.progress[id] || {} };
     return { settings: { ...DEFAULT_SETTINGS, ...S.settings }, users: S.users, plans: S.plans, tasks, activity: S.activity, join: S.join,
-      chats: S.chats, chatOff: S.chatOff, chatsLoaded: !!S.chatsLoaded, talk: S.talk, commentSeen: S.seen, talkLoaded: S.talkLoaded, me: S.me, actor: S.me && S.me.uid, online: S.online, loaded: S.loaded, persistOk: true };
+      chats: S.chats, chatOff: S.chatOff, chatsLoaded: !!S.chatsLoaded, talk: S.talk, commentSeen: S.seen, talkLoaded: S.talkLoaded, logs: S.logs, logsLoaded: S.logsLoaded, me: S.me, actor: S.me && S.me.uid, online: S.online, loaded: S.loaded, persistOk: true };
   }
   const emit = () => { snap = build(); listeners.forEach((fn) => fn()); };
   const uid = () => auth.currentUser && auth.currentUser.uid;
@@ -121,6 +121,17 @@ export async function createFirebaseStore(config) {
       S.seen = Object.fromEntries(Object.entries(c).map(([k, v]) => [k, ms(v)]));
       emit();
     }, (e) => console.warn('seen listener stopped:', e && e.code)));
+    // บันทึกงานที่ทำ: an intern reads his own, staff and the admin read everyone's
+    const everyone = isStaff(S.me) || S.me.role === 'admin';
+    keep(onSnapshot(everyone ? collection(fs, 'logs') : query(collection(fs, 'logs'), where('by', '==', S.me.uid)), { includeMetadataChanges: true }, (qs) => {
+      S.logs = Object.fromEntries(qs.docs.map((d) => {
+        const x = d.data({ serverTimestamps: 'estimate' });
+        return [d.id, { id: d.id, by: x.by, day: x.day, slot: x.slot || 'day', time: x.time || '', title: x.title || '', detail: x.detail || '',
+          from: x.from || '', status: x.status || 'done', planId: x.planId || null, proof: x.proof || '', photos: x.photos || [],
+          at: ms(x.at), editedAt: ms(x.editedAt), okBy: x.okBy || null, okAt: ms(x.okAt), pending: d.metadata.hasPendingWrites }];
+      }));
+      S.logsLoaded = true; emit();
+    }, (e) => console.warn('log listener stopped:', e && e.code)));
     if (S.me && S.me.role === 'admin') {
       // invite codes for the two invite links; made the first time the admin opens the app
       listen(doc(fs, 'meta', 'join'), (d) => {
@@ -551,19 +562,64 @@ export async function createFirebaseStore(config) {
       await updateDoc(doc(fs, 'chats', cid), patch);
     }),
 
+    // บันทึกงานที่ทำ: logs/{id}, written by the intern himself; photos go to attachments (one document each), all in one batch.
+    // Saving an edit always takes away a พี่'s confirmation (the rules insist on it).
+    saveLog: wrap(async (id, input, { keep = [], images = [] } = {}) => {
+      must(canLog(S.me), 'บันทึกงานที่ทำมีไว้สำหรับน้องฝึกงาน');
+      const old = id ? S.logs[id] : null;
+      must(!id || (old && old.by === uid()), 'แก้ได้เฉพาะบันทึกของตัวเอง');
+      const data = cleanLog(input, dateKey(new Date()));
+      const kept = old ? old.photos.filter((p) => keep.includes(p)) : [];
+      must(kept.length + images.length <= MAX_LOG_PHOTOS, `แนบรูปได้ไม่เกิน ${MAX_LOG_PHOTOS} รูปต่อบันทึก`);
+      const ref = id ? doc(fs, 'logs', id) : doc(collection(fs, 'logs'));
+      const b = writeBatch(fs);
+      const added = images.map((img) => {
+        const fref = doc(collection(fs, 'attachments'));
+        b.set(fref, { logId: ref.id, by: uid(), name: img.name, type: img.type, data: img.data, size: img.size || 0, at: now() });
+        return fref.id;
+      });
+      if (old) {
+        b.update(ref, { ...data, photos: [...kept, ...added], editedAt: serverTimestamp(), okBy: null, okAt: null });
+        old.photos.filter((p) => !kept.includes(p)).forEach((p) => b.delete(doc(fs, 'attachments', p)));
+      } else b.set(ref, { ...data, photos: added, by: uid(), at: serverTimestamp() });
+      await b.commit();
+      return ref.id;
+    }),
+    deleteLog: wrap(async (id) => {
+      const l = S.logs[id];
+      must(l && l.by === uid(), 'ลบได้เฉพาะบันทึกของตัวเอง');
+      must(!l.okBy, 'พี่รับรองบันทึกนี้แล้ว ลบไม่ได้ ถ้ามีอะไรผิดให้แก้ไข แล้วให้พี่รับรองใหม่');
+      const b = writeBatch(fs);
+      l.photos.forEach((p) => b.delete(doc(fs, 'attachments', p)));
+      b.delete(doc(fs, 'logs', id));
+      await b.commit();
+    }),
+    // a พี่ vouches that the entries are what the intern really did, or takes that back
+    confirmLogs: wrap(async (ids, on = true) => {
+      must(isStaff(S.me), 'รับรองบันทึกได้เฉพาะพี่ผู้ดูแล');
+      const list = ids.map((x) => S.logs[x]).filter((l) => l && l.by !== uid() && (on ? !l.okBy : !!l.okBy));
+      if (!list.length) return 0;
+      const b = writeBatch(fs);
+      list.forEach((l) => b.update(doc(fs, 'logs', l.id), on ? { okBy: uid(), okAt: serverTimestamp() } : { okBy: null, okAt: null }));
+      const who = [...new Set(list.map((l) => displayName(S.users[l.by])))].join(', ');
+      logIn(b, `${on ? 'รับรอง' : 'ยกเลิกการรับรอง'}บันทึกงานของ ${who} ${list.length} รายการ`);
+      await b.commit();
+      return list.length;
+    }),
+
     updateSettings: wrap(async (patch) => {
       must(role() === 'admin', 'ตั้งค่าได้เฉพาะแอดมิน');
       await setDoc(doc(fs, 'settings', 'app'), patch, { merge: true });
     }),
     exportData() {
-      return { exportedAt: now(), settings: snap.settings, users: snap.users, plans: snap.plans, tasks: snap.tasks, activity: snap.activity };
+      return { exportedAt: now(), settings: snap.settings, users: snap.users, plans: snap.plans, tasks: snap.tasks, logs: snap.logs, activity: snap.activity };
     },
   };
   let meUnsub = null;
   A.onAuthStateChanged(auth, async (user) => {
     if (meUnsub) { meUnsub(); meUnsub = null; }
     stopData();
-    if (!user) { S.me = null; S.users = {}; S.tasks = {}; S.progress = {}; S.plans = {}; S.chats = {}; S.chatsLoaded = false; emit(); readyResolve(); return; }
+    if (!user) { S.me = null; S.users = {}; S.tasks = {}; S.progress = {}; S.plans = {}; S.chats = {}; S.chatsLoaded = false; S.logs = {}; S.logsLoaded = false; emit(); readyResolve(); return; }
     try {
       const ref = doc(fs, 'users', user.uid);
       const got = await getDoc(ref);

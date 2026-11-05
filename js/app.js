@@ -1,6 +1,6 @@
 // App shell: data subscription, hash routing, navigation, demo persona switcher, toasts.
 import { html, render, useEffect, useMemo, useState, useCallback, useRef } from './vendor/preact-htm.js';
-import { calendar, weekOf, displayName, isStudent, isStaff, canAssign, canReview, isInternAdmin, assignerOpen, assignerUntil, fmtDay, fmtTime, fmtRange, TH_DAYS, stateOf, isLate, isUnread, unreadCount, otherOf, talkUnread, woNumber } from './model.js';
+import { calendar, weekOf, displayName, isStudent, isStaff, canAssign, canReview, isInternAdmin, assignerOpen, assignerUntil, fmtDay, fmtTime, fmtRange, TH_DAYS, stateOf, isLate, isUnread, unreadCount, otherOf, talkUnread, woNumber, canLog, logsToConfirm } from './model.js';
 import { Icon } from './ui.js';
 import { Ctx } from './ctx.js';
 import { MyTasks } from './views/my.js';
@@ -14,6 +14,7 @@ import { AdminView } from './views/admin.js';
 import { SignIn, Waiting } from './views/signin.js';
 import { ProfileSheet } from './views/profile.js';
 import { ChatView } from './views/chat.js';
+import { LogView } from './views/log.js';
 
 const ROLE_LABEL = { admin: 'แอดมิน', supervisor: 'พนักงานผู้ดูแล', student: 'นักศึกษา', pending: 'รออนุมัติ' };
 export const roleLabel = (u) => (u.role === 'admin' && u.isStudent ? 'แอดมิน · นักศึกษา' : ROLE_LABEL[u.role] || u.role);
@@ -22,6 +23,9 @@ function tabsFor(me, badges, now) {
   const t = [];
   if (isStudent(me)) t.push({ id: 'my', label: 'งานของฉัน', icon: 'inbox', badge: badges.mine });
   if (canAssign(me, now)) t.push({ id: 'board', label: 'ภาพรวม', icon: 'board', badge: badges.review }, { id: 'tasks', label: 'งานทั้งหมด', icon: 'list' });
+  // work the intern did without a work order: he writes it down, a พี่ confirms it
+  if (isStaff(me)) t.push({ id: 'log', label: 'บันทึกงานของน้อง', short: 'บันทึก', icon: 'clip', badge: badges.log });
+  else if (canLog(me)) t.push({ id: 'log', label: 'บันทึกงานที่ทำ', short: 'บันทึก', icon: 'clip' });
   // private chat: interns with staff, staff with interns
   if (isStudent(me) || isStaff(me)) t.push({ id: 'chat', label: 'แชท', icon: 'chat', badge: badges.chat });
   t.push({ id: 'plan', label: 'แผน 16 สัปดาห์', short: 'แผน', icon: 'plan' });
@@ -138,7 +142,7 @@ function App({ store }) {
   if (store.mode !== 'demo' && !me) return html`<${SignIn} store=${store} />`;
   if (me && (me.role === 'pending' || me.role === 'blocked')) return html`<${Waiting} store=${store} me=${me} />`;
 
-  const badges = { mine: 0, review: 0, chat: unreadCount(db.chats, me.uid) };
+  const badges = { mine: 0, review: 0, chat: unreadCount(db.chats, me.uid), log: isStaff(me) ? logsToConfirm(db, me.uid).length : 0 };
   for (const t of Object.values(db.tasks)) {
     if (t.assignees.includes(me.uid)) {
       const s = stateOf(t, me.uid);
@@ -150,7 +154,7 @@ function App({ store }) {
   const assignerOn = isInternAdmin(me) && assignerOpen(me, now);
   const lockNow = async () => { try { await store.lockAssigner(); toast('ล็อกโหมดผู้มอบงานแล้ว'); } catch (ex) { toast(ex.message, 'bad'); } };
   const woMatch = /^wo-(\d+)$/.exec(route);
-  let tab = woMatch ? (lastTab.current || tabs[0].id) : /^chatg?-./.test(route) ? 'chat' : route;
+  let tab = woMatch ? (lastTab.current || tabs[0].id) : /^chatg?-./.test(route) ? 'chat' : /^log-./.test(route) ? 'log' : route;
   if (!tabs.some((t) => t.id === tab)) tab = tabs[0].id;
   if (!woMatch) lastTab.current = tab;
   const openTask = (no) => { location.hash = `wo-${no}`; };
@@ -162,7 +166,7 @@ function App({ store }) {
     openProfile: () => setProfileOpen(true) };
   const week = weekOf(cal, now);
 
-  const View = { my: MyTasks, board: Board, tasks: AllTasks, chat: ChatView, plan: PlanView, form: UniForm, admin: AdminView }[tab];
+  const View = { my: MyTasks, board: Board, tasks: AllTasks, log: LogView, chat: ChatView, plan: PlanView, form: UniForm, admin: AdminView }[tab];
 
   return html`<${Ctx.Provider} value=${ctx}>
     ${store.mode === 'demo' ? html`<${DemoBar} store=${store} db=${db} />` : ''}

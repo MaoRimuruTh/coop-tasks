@@ -252,6 +252,45 @@ service cloud.firestore {
       allow read, write: if signedIn() && request.auth.uid == uid;
     }
 
+    // บันทึกงานที่ทำ: work an intern really did without a work order (asked by word of mouth, a training, helping out).
+    // Only the intern writes his own; a พี่ confirms it; any change by the intern takes the confirmation away;
+    // the time of writing is the server's, so an entry written days later always shows it.
+    function logFieldsOk(d) {
+      return d.keys().hasAll(['by', 'day', 'slot', 'time', 'title', 'detail', 'from', 'status', 'planId', 'proof', 'photos', 'at'])
+        && d.keys().hasOnly(['by', 'day', 'slot', 'time', 'title', 'detail', 'from', 'status', 'planId', 'proof', 'photos', 'at', 'editedAt', 'okBy', 'okAt'])
+        && d.day is string && d.day.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && d.slot in ['am', 'pm', 'day']
+        && d.time is string && d.time.size() <= 20
+        && d.title is string && d.title.size() > 0 && d.title.size() <= 200
+        && d.detail is string && d.detail.size() <= 2000
+        && d.from is string && d.from.size() <= 80
+        && d.status in ['done', 'doing']
+        && (d.planId == null || d.planId is string)
+        && d.proof is string && d.proof.size() <= 1000
+        && d.photos is list && d.photos.size() <= 4;
+    }
+    match /logs/{lid} {
+      allow read: if approved() && (resource.data.by == request.auth.uid || staffDoc(profile()) || admin());
+      allow create: if approved() && internDoc(profile())
+        && request.resource.data.by == request.auth.uid
+        && logFieldsOk(request.resource.data)
+        && request.resource.data.at == request.time
+        && !request.resource.data.keys().hasAny(['editedAt', 'okBy', 'okAt']);
+      // the intern fixes his own entry: never who wrote it or when, and a confirmation never survives the change
+      allow update: if approved() && resource.data.by == request.auth.uid
+        && logFieldsOk(request.resource.data)
+        && !changed().hasAny(['by', 'at'])
+        && request.resource.data.editedAt == request.time
+        && request.resource.data.get('okBy', null) == null && request.resource.data.get('okAt', null) == null;
+      // a พี่ confirms (in his own name, at the server's time) or takes a confirmation back; nothing else moves
+      allow update: if approved() && staffDoc(profile()) && resource.data.by != request.auth.uid
+        && onlyChanged(['okBy', 'okAt'])
+        && ((request.resource.data.okBy == request.auth.uid && request.resource.data.okAt == request.time)
+            || (request.resource.data.okBy == null && request.resource.data.okAt == null));
+      // only an entry no พี่ has confirmed yet
+      allow delete: if approved() && resource.data.by == request.auth.uid && resource.data.get('okBy', null) == null;
+    }
+
     // the whole team's statuses are read with one collection-group listener
     match /{path=**}/progress/{uid} {
       allow read: if approved();
